@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 // Mock OpenCode server (session API)
-let script = []; const seen = []; const deleted = []; let retryStatus = {};
+let script = []; const seen = []; const deleted = []; let retryStatus = {}; let desktop = false;
 const mock = http.createServer((req, res) => {
   let b = ''; req.on('data', c => b += c); req.on('end', () => {
     const json = (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
@@ -15,6 +15,13 @@ const mock = http.createServer((req, res) => {
       ] });
     }
     if (req.url === '/experimental/tool/ids') return json(200, ['bash', 'edit', 'webfetch']);
+    if (desktop && req.url === '/session') { res.statusCode = 405; return res.end(); }
+    if (desktop && req.url === '/api/experimental/generate/text' && req.method === 'POST') {
+      const body = JSON.parse(b); seen.push({ body });
+      const step = script.shift() || { text: '{"type":"final","content":"default"}' };
+      if (step.status) return json(step.status, step.body || {});
+      return json(200, { data: { text: step.text } });
+    }
     if (req.url === '/session' && req.method === 'POST') return json(200, { id: 'ses_' + (seen.length + 1) + '_' + Math.random().toString(36).slice(2, 6) });
     if (req.url === '/session/status') return json(200, retryStatus);
     if (/^\/session\/[^/]+\/abort$/.test(req.url)) return json(200, true);
@@ -41,7 +48,7 @@ const server = B.createServer();
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => { server.close(); mock.close(); });
-test.beforeEach(() => { B.resetState(); script = []; seen.length = 0; deleted.length = 0; retryStatus = {}; });
+test.beforeEach(() => { B.resetState(); script = []; seen.length = 0; deleted.length = 0; retryStatus = {}; desktop = false; });
 
 const tools = [{ type: 'function', function: { name: 'search_assets', description: 'search', parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] } } }];
 const post = (body, headers = {}) => fetch(base + '/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -146,6 +153,19 @@ test('invalid Zen key -> 401 with a clear message', async () => {
   script = [{ error: { name: 'APIError', data: { message: 'Invalid credential' } } }];
   const r = await post(req()); const j = await r.json();
   assert.equal(r.status, 401); assert.match(j.error.message, /OPENCODE_ZEN_API_KEY/);
+});
+
+test('desktop app without session API falls back to generate/text', async () => {
+  desktop = true;
+  script = [{ text: '{"type":"tool_call","name":"search_assets","arguments":{"q":"y"}}' }];
+  const j = await (await post(req())).json();
+  assert.equal(j.choices[0].message.tool_calls[0].function.name, 'search_assets');
+  assert.deepEqual(seen[0].body.model, { providerID: 'opencode', id: 'deepseek-v4.1-flash-free' });
+  assert.match(seen[0].body.prompt, /\[user\]\nhi/);
+  // remembered: next call goes straight to generate/text
+  script = [{ status: 429, body: { retryAfterMs: 3600000 } }, { text: '{"type":"final","content":"ok"}' }];
+  const k = await (await post(req())).json();
+  assert.equal(k.model, 'opencode/big-pickle');
 });
 
 test('other model error -> 502', async () => {

@@ -26,6 +26,9 @@ export const CFG = {
   maxUpstreamRetries: Number(env.BRIDGE_MAX_UPSTREAM_RETRIES || 2),
   unavailableCooldownMs: Number(env.BRIDGE_UNAVAILABLE_COOLDOWN_MS || 5 * 60 * 1000),
   agent: env.BRIDGE_AGENT || '',
+  // session = OpenCode session API (npm builds); generate = /api/experimental/generate/text
+  // (desktop app 2.x); auto = try session, fall back to generate on 404/405.
+  api: (env.BRIDGE_API || 'auto').toLowerCase(),
 };
 
 export const FALLBACK_MODELS = [
@@ -122,7 +125,7 @@ export function orderedModels(requested, discovered) {
 const cooldown = new Map(); // model -> epoch ms
 const coolUntil = m => cooldown.get(m) || 0;
 export function setCooldown(m, ms) { cooldown.set(m, Date.now() + Math.max(1000, ms)); }
-export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; }
+export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; detectedApi = null; }
 
 function parseRetryAfterMs(res, bodyText) {
   const h = res.headers.get('retry-after');
@@ -306,7 +309,7 @@ async function readUpstream(res, what) {
 
 // One throwaway OpenCode session per request: ARTEX already sends the whole
 // conversation, so nothing may accumulate on the OpenCode side.
-async function generateText(model, prompt, _session, signal) {
+async function generateViaSession(model, prompt, signal) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(new HttpError(504, 'upstream timeout')), CFG.timeoutMs);
   const onAbort = () => ctl.abort(new HttpError(499, 'client closed request'));
@@ -317,7 +320,9 @@ async function generateText(model, prompt, _session, signal) {
   try {
     let created;
     try {
-      created = await readUpstream(await upstreamFetch('/session', { method: 'POST', body: { title: 'artex-bridge' }, signal: ctl.signal }), 'create session');
+      const res = await upstreamFetch('/session', { method: 'POST', body: { title: 'artex-bridge' }, signal: ctl.signal });
+      if (res.status === 404 || res.status === 405) throw new HttpError(502, `OpenCode has no session API (${res.status})`, { noSessionApi: true });
+      created = await readUpstream(res, 'create session');
     } catch (e) {
       if (e instanceof HttpError) throw e;
       if (ctl.signal.aborted && ctl.signal.reason instanceof HttpError) throw ctl.signal.reason;
@@ -357,6 +362,58 @@ async function generateText(model, prompt, _session, signal) {
         .catch(() => {})
         .finally(() => upstreamFetch(`/session/${sid}`, { method: 'DELETE', ...quiet }).catch(() => {}));
     }
+  }
+}
+
+// Desktop app 2.x: one-shot text generation, no tools, no session to clean up.
+async function generateViaText(model, prompt, signal) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new HttpError(504, 'upstream timeout')), CFG.timeoutMs);
+  const onAbort = () => ctl.abort(new HttpError(499, 'client closed request'));
+  signal?.addEventListener('abort', onAbort, { once: true });
+  try {
+    let res;
+    try {
+      res = await upstreamFetch('/api/experimental/generate/text', {
+        method: 'POST',
+        signal: ctl.signal,
+        body: { prompt, model: { providerID: CFG.providerID, id: model } },
+      });
+    } catch (e) {
+      if (ctl.signal.aborted && ctl.signal.reason instanceof HttpError) throw ctl.signal.reason;
+      throw new HttpError(502, `OpenCode unreachable: ${e.message}`);
+    }
+    const out = await readUpstream(res, 'generate text');
+    const err = out?.error ?? out?.data?.error;
+    if (err) {
+      const msg = typeof err === 'string' ? err : `${err.name ?? ''} ${err.data?.message ?? err.message ?? ''}`.trim();
+      if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: 15 * 60 * 1000 });
+      throw new HttpError(502, `OpenCode model error: ${msg || 'unknown'}`);
+    }
+    const t = out?.data?.text ?? out?.text;
+    if (typeof t !== 'string' || !t) throw new HttpError(502, 'OpenCode response has no text');
+    return t;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+let detectedApi = null;
+async function generateText(model, prompt, _session, signal) {
+  const mode = CFG.api === 'auto' ? detectedApi : CFG.api;
+  if (mode === 'generate') return generateViaText(model, prompt, signal);
+  try {
+    const out = await generateViaSession(model, prompt, signal);
+    if (CFG.api === 'auto') detectedApi = 'session';
+    return out;
+  } catch (e) {
+    if (e.noSessionApi && CFG.api === 'auto') {
+      detectedApi = 'generate';
+      log('upstream has no session API; using /api/experimental/generate/text');
+      return generateViaText(model, prompt, signal);
+    }
+    throw e;
   }
 }
 
