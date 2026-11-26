@@ -20,29 +20,25 @@ Endpoints: `GET /health`, `GET /v1/models`, `POST /v1/chat/completions` (`stream
 `docker-compose.opencode.yml` runs OpenCode and the bridge next to ARTEX on the
 Compose network. Nothing is published on your machine.
 
-1. Add to `.env` (two different long random strings):
+1. Add to `.env` at the root of the project (next to `docker-compose.yml`):
 
 ```
-OPENCODE_SERVER_PASSWORD=...
-OPENCODE_BRIDGE_TOKEN=...
+OPENCODE_ZEN_API_KEY=your-opencode-zen-api-key
+OPENCODE_SERVER_PASSWORD=a-long-random-string
+OPENCODE_BRIDGE_TOKEN=another-long-random-string
 COMPOSE_FILE=docker-compose.yml;docker-compose.windows.yml;docker-compose.opencode.yml
 ```
 
-   `COMPOSE_FILE` makes every `docker compose` command use the three files
-   (Windows uses `;` as separator; on Linux/macOS use `:` and drop the windows file).
+   `COMPOSE_FILE` makes every `docker compose` command load the three files; without
+   it Compose answers `no such service: opencode`. Windows uses `;` as separator; on
+   Linux/macOS use `:` and drop the windows file. The Zen key stays inside the
+   OpenCode container: ARTEX only ever sees `OPENCODE_BRIDGE_TOKEN`.
 
-2. Build and start: `docker compose up -d --build`
+2. From the project root: `docker compose up -d --build`, then
+   `docker compose ps` should list `opencode` and `opencode-bridge` as running.
 
-3. Log OpenCode in to your account, once (stored in the `opencode-data` volume):
-
-```
-docker compose run --rm -it opencode opencode auth login
-```
-
-   Pick OpenCode / OpenCode Zen and follow the prompts. If you already use
-   OpenCode on this PC, you can copy its login instead:
-   `docker compose cp "$env:USERPROFILE\.local\share\opencode\auth.json" opencode:/home/node/.local/share/opencode/auth.json`
-   then `docker compose restart opencode`.
+3. No key? Leave `OPENCODE_ZEN_API_KEY` empty and log in once instead:
+   `docker compose run --rm -it opencode opencode auth login`.
 
 4. ARTEX → System → LLM → Create:
 

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && npm install -g "opencode-ai@${OPENCODE_VERSION}" \
     && opencode --version
 
-COPY bridge.mjs /bridge/bridge.mjs
+COPY bridge.mjs opencode-entry.mjs /bridge/
 
 # OpenCode keeps its login (auth.json) and sessions under ~/.local/share/opencode,
 # which docker-compose.opencode.yml puts in a named volume.

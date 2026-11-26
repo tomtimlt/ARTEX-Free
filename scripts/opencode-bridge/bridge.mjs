@@ -339,6 +339,9 @@ async function generateText(model, prompt, _session, signal) {
     if (err) {
       const msg = `${err.name ?? ''} ${err.data?.message ?? err.message ?? ''}`.trim();
       if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: 15 * 60 * 1000 });
+      if (/invalid credential|unauthori[sz]ed|invalid api key|authentication/i.test(msg)) {
+        throw new HttpError(401, `OpenCode Zen rejected the API key (OPENCODE_ZEN_API_KEY): ${msg}`);
+      }
       throw new HttpError(502, `OpenCode model error: ${msg || 'unknown'}`);
     }
     const text = (out?.parts ?? []).filter((p) => p?.type === 'text' && typeof p.text === 'string').map((p) => p.text).join('');

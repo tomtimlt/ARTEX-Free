@@ -142,8 +142,14 @@ test('model OpenCode keeps retrying is skipped, next model answers', async () =>
   assert.equal(j.choices[0].message.content, 'next');
 });
 
+test('invalid Zen key -> 401 with a clear message', async () => {
+  script = [{ error: { name: 'APIError', data: { message: 'Invalid credential' } } }];
+  const r = await post(req()); const j = await r.json();
+  assert.equal(r.status, 401); assert.match(j.error.message, /OPENCODE_ZEN_API_KEY/);
+});
+
 test('other model error -> 502', async () => {
-  script = [{ error: { name: 'ProviderAuthError', data: { message: 'invalid credentials' } } }];
+  script = [{ error: { name: 'APIError', data: { message: 'context length exceeded' } } }];
   assert.equal((await post(req())).status, 502);
 });
 

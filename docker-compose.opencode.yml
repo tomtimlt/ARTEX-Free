@@ -5,11 +5,11 @@
 # Both run on the Compose network only: nothing is published on the host, so no
 # firewall prompt and no admin rights are needed.
 #
-#   .env:  OPENCODE_SERVER_PASSWORD=<random>   (OpenCode server password)
+#   .env:  OPENCODE_ZEN_API_KEY=<your Zen key>  (used by OpenCode, never by ARTEX)
+#          OPENCODE_SERVER_PASSWORD=<random>   (OpenCode server password)
 #          OPENCODE_BRIDGE_TOKEN=<random>      (the API key ARTEX sends to the bridge)
-#   run:   docker compose -f docker-compose.yml -f docker-compose.opencode.yml up -d --build
-#          (add -f docker-compose.windows.yml first on Windows)
-#   login: docker compose -f docker-compose.yml -f docker-compose.opencode.yml run --rm -it opencode opencode auth login
+#          COMPOSE_FILE=docker-compose.yml;docker-compose.windows.yml;docker-compose.opencode.yml
+#   run:   docker compose up -d --build
 #
 # ARTEX LLM profile: format "OpenAI (Chat Completions)", base URL
 # http://opencode-bridge:8789/v1, API key = OPENCODE_BRIDGE_TOKEN, streaming off.
@@ -23,17 +23,15 @@ x-opencode-image: &opencode-image
 services:
   opencode:
     <<: *opencode-image
-    command: ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    # Locked-down `opencode serve` (see scripts/opencode-bridge/opencode-entry.mjs):
+    # no project config, plugins, sharing or updates; every permission denied; a
+    # tool-less "bridge" agent; no background calls to paid helper models.
+    command: ["node", "/bridge/opencode-entry.mjs"]
     environment:
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?Please set OPENCODE_SERVER_PASSWORD in .env}
-      # Locked down: no project config, no plugins, no sharing, no updates, every
-      # permission denied. The "bridge" agent has no tools; the bridge also turns
-      # every OpenCode tool off per request, so OpenCode never runs anything.
-      OPENCODE_DISABLE_PROJECT_CONFIG: "1"
-      OPENCODE_PURE: "1"
-      OPENCODE_DISABLE_AUTOUPDATE: "1"
-      OPENCODE_DISABLE_SHARE: "1"
-      OPENCODE_CONFIG_CONTENT: '{"share":"disabled","autoupdate":false,"snapshot":false,"lsp":false,"formatter":false,"permission":{"*":"deny","bash":"deny","edit":"deny","read":"deny","glob":"deny","grep":"deny","webfetch":"deny","websearch":"deny","task":"deny","skill":"deny","external_directory":"deny","todowrite":"deny","question":"deny"},"agent":{"bridge":{"mode":"primary","description":"JSON-only model endpoint for the ARTEX bridge","prompt":"You are a language model reached through an API bridge. Follow the instructions in the conversation exactly. You have no tools.","permission":{"*":"deny"}}}}'
+      # Your OpenCode Zen API key (opencode.ai > Zen > API keys). Empty = use a login
+      # made with `opencode auth login` inside the container instead.
+      OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
     volumes:
       - opencode-data:/home/node/.local/share/opencode
     security_opt:
