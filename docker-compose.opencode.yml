@@ -47,10 +47,14 @@ services:
     environment:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_TOKEN: ${OPENCODE_BRIDGE_TOKEN:?Please set OPENCODE_BRIDGE_TOKEN in .env}
-      BRIDGE_AGENT: bridge
-      OPENCODE_URL: http://opencode:4096
-      OPENCODE_USERNAME: opencode
-      OPENCODE_PASSWORD: ${OPENCODE_SERVER_PASSWORD}
+      # Upstream OpenCode server. Default: the "opencode" container above. To use the
+      # OpenCode desktop app on the host instead (it signs Zen calls with your account),
+      # set OPENCODE_BRIDGE_UPSTREAM=http://host.docker.internal:<app port>, its server
+      # user/password, and OPENCODE_BRIDGE_AGENT= (empty: the app has no "bridge" agent).
+      BRIDGE_AGENT: ${OPENCODE_BRIDGE_AGENT-bridge}
+      OPENCODE_URL: ${OPENCODE_BRIDGE_UPSTREAM:-http://opencode:4096}
+      OPENCODE_USERNAME: ${OPENCODE_BRIDGE_UPSTREAM_USER:-opencode}
+      OPENCODE_PASSWORD: ${OPENCODE_BRIDGE_UPSTREAM_PASSWORD:-${OPENCODE_SERVER_PASSWORD}}
     security_opt:
       - "no-new-privileges:true"
     restart: unless-stopped

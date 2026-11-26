@@ -71,9 +71,36 @@ docker compose restart opencode opencode-bridge
 Check: `docker compose logs opencode-bridge` shows which model served each call and
 which ones are cooling down.
 
-## OpenCode on the host instead
+## Use the OpenCode desktop app as the upstream
 
-If OpenCode already runs on your machine and you can open a port:
+OpenCode 1.19.x (the container) signs Zen calls with an API key only; without one it
+calls anonymously, and the anonymous free tier is limited per IP (shared office IPs
+run out fast). The desktop app signs them with your account. To use the app, keep
+the bridge in Docker and point it at the app's local server:
+
+1. Check the container can reach the app (replace 28894 by the app's port):
+
+```
+docker compose exec opencode-bridge node -e "fetch('http://host.docker.internal:28894/api/model?types=chat').then(r=>console.log('HTTP',r.status)).catch(e=>console.log('KO',e.cause?.code||e.message))"
+```
+
+   `HTTP 200` or `HTTP 401` means reachable; `KO ECONNREFUSED` means it is not.
+
+2. In `.env` (user/password: the app's server credentials, e.g. from
+   `~/.config/opencode/service.json`):
+
+```
+OPENCODE_BRIDGE_UPSTREAM=http://host.docker.internal:28894
+OPENCODE_BRIDGE_UPSTREAM_USER=...
+OPENCODE_BRIDGE_UPSTREAM_PASSWORD=...
+OPENCODE_BRIDGE_AGENT=
+```
+
+3. `docker compose up -d`, then test the ARTEX profile again. The app must be running.
+
+## Bridge on the host instead
+
+If you can open a port on your machine:
 
 ```powershell
 $env:OPENCODE_URL = "http://127.0.0.1:28894"
