@@ -243,8 +243,12 @@ func (s *Server) toolListLLMProfiles() actool.CoreTool {
 
 func (s *Server) toolSpawnTask() actool.CoreTool {
 	return wrTool("spawn_task",
-		"Create a subtask and start its exploration engine; returns task_id. Use it to spin one piece of work (e.g. a challenge/a goal) off into an independent task. parent_ref is optional: set the parent task id of the current orchestration to link parent and child.",
+		"Create a task and start its exploration engine (one planner + a pool of parallel workers); returns task_id. Use it to spin one piece of work off into an independent task, typically one per track: a web track (e.g. name \"Web · app.acme.com\", scope [{kind:subdomain, value:app.acme.com}]) and a network track (e.g. name \"Network · 10.0.0.0/24\", scope [{kind:cidr, value:10.0.0.0/24}]). "+
+			"When the operator has not given the scope, derive it from what you already found (hosts, IPs, ranges) and put it in scope. "+
+			"From a chat, every call shows the operator an approval card with the name, goal and scope and waits for the decision: propose the track in one or two sentences, then call this tool; if the operator declines, ask what to change. parent_ref is optional: set the parent task id of the current orchestration to link parent and child.",
 		objSchema(map[string]any{
+			"name":                   strParam("optional: short task name shown in the task list, e.g. \"Web · app.acme.com\""),
+			"scope":                  map[string]any{"type": "array", "description": "optional: targets of the task: [{kind, value}], kind ∈ root_domain/subdomain/ip/cidr/company/keyword (e.g. {kind:\"subdomain\", value:\"app.acme.com\"}, {kind:\"cidr\", value:\"10.0.0.0/24\"}). It is the task's coverage scope (assets the planner and coverage count against).", "items": map[string]any{"type": "object", "properties": map[string]any{"kind": strParam("root_domain / subdomain / ip / cidr / company / keyword"), "value": strParam("domain, IP, CIDR, company name or keyword")}, "required": []string{"kind", "value"}}},
 			"description":            strParam("task description (short title)"),
 			"goal":                   strParam("task goal (what to achieve)"),
 			"parent_ref":             strParam("optional: parent task id (for parent-child linking)"),
@@ -256,6 +260,8 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 		}, "description", "goal"),
 		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
+				Name                 string          `json:"name"`
+				Scope                []spawnScope    `json:"scope"`
 				Description          string          `json:"description"`
 				Goal                 string          `json:"goal"`
 				ParentRef            string          `json:"parent_ref"`
@@ -274,6 +280,11 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			}
 			if a.TimeoutSeconds < 0 {
 				a.TimeoutSeconds = 0
+			}
+			a.Name = strings.TrimSpace(a.Name)
+			scope, err := normalizeSpawnScope(a.Scope)
+			if err != nil {
+				return actool.Errorf(err.Error()), nil
 			}
 			// Read-only source-task inheritance: count cap + each id valid/deduped/existing, the same validation rules as HTTP task creation.
 			if len(a.SourceTaskIDs) > db.MaxTaskSourceCount {
@@ -327,7 +338,27 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 					}
 				}
 			}
+			// From a chat, the operator confirms every task before it exists: the tool
+			// itself raises the approval card (the same one the intercept layer uses),
+			// so the confirmation does not depend on which tools the intercept rules
+			// cover, and the model cannot skip it. Runs without a conversation
+			// (orchestration from a task, triggers) keep the previous behavior.
+			scopeSource := "agent"
+			if convID := intercept.ConvIDFromContext(ctx); convID != 0 && s.m.interceptor != nil {
+				dec := intercept.Decision{
+					Action:         "ask",
+					Message:        spawnConfirmMessage(a.Name, a.Description, a.Goal, scope),
+					TimeoutEnabled: true,
+					TimeoutSeconds: spawnConfirmTimeoutSeconds,
+					TimeoutAction:  "deny",
+				}
+				if !s.m.interceptor.HandleAsk(ctx, convID, dec, "spawn_task", in) {
+					return actool.Text("The operator did not approve this task, so nothing was created. Ask what to change (name, goal or scope) before proposing it again."), nil
+				}
+				scopeSource = "manual"
+			}
 			t, err := s.m.CreateTaskWithOptions(a.Description, a.Goal, db.TaskCreateOptions{
+				Name:                 a.Name,
 				SourceTaskIDs:        sourceIDs,
 				LLMProfileIDs:        llmIDs,
 				TimeoutSeconds:       a.TimeoutSeconds,
@@ -347,9 +378,102 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			// Shared post-create flow: HTTP task creation (server.go createTask) reuses this same launchTask:
 			// seed + a visibly-in-background goal decomposition (round 0 / LLM steps / per-goal) + engine.Run.
 			// seed_first_intent defaults to false (the standard plan-then-execute flow); simple tasks may enable it to issue one work test directly.
+			// Scope goes in before launch, so the first planning round already sees it.
+			var scopeAdded []map[string]string
+			scopeErrors := map[string]string{}
+			if len(scope) > 0 {
+				taskID, _ := strconv.ParseInt(t.ID, 10, 64)
+				reason := "set by the agent at task creation"
+				if scopeSource == "manual" {
+					reason = "proposed in chat and approved by the operator"
+				}
+				for _, e := range scope {
+					if _, err := s.m.Assets().AddAgentScope(taskID, e.Kind, e.Value, reason, scopeSource); err != nil {
+						scopeErrors[e.Kind+":"+e.Value] = err.Error()
+						continue
+					}
+					scopeAdded = append(scopeAdded, map[string]string{"kind": e.Kind, "value": e.Value})
+				}
+			}
 			s.launchTask(t, a.Description+" "+a.Goal, a.SeedFirstIntent)
-			return actool.Text(fmt.Sprintf("task created: %s", t.ID)), nil
+			out := map[string]any{"task_id": t.ID, "status": "task created and started"}
+			if a.Name != "" {
+				out["name"] = a.Name
+			}
+			if len(scopeAdded) > 0 {
+				out["scope_added"] = scopeAdded
+			}
+			if len(scopeErrors) > 0 {
+				out["scope_errors"] = scopeErrors
+			}
+			return jsonResult(out)
 		})
+}
+
+// spawnScope is one target of a task created by spawn_task.
+type spawnScope struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+// spawnScopeKinds are the task_scope kinds spawn_task accepts. icp is left out on
+// purpose: it is a registry number, not something the model derives from a scan.
+var spawnScopeKinds = map[string]bool{
+	"root_domain": true, "subdomain": true, "ip": true, "cidr": true, "company": true, "keyword": true,
+}
+
+// maxSpawnScope bounds one call, so an approval card stays readable.
+const maxSpawnScope = 64
+
+// spawnConfirmTimeoutSeconds is how long a chat waits for the operator to answer
+// the task approval card before the creation is dropped.
+const spawnConfirmTimeoutSeconds = 900
+
+// normalizeSpawnScope trims, validates and dedups the scope entries of one call.
+func normalizeSpawnScope(in []spawnScope) ([]spawnScope, error) {
+	if len(in) > maxSpawnScope {
+		return nil, fmt.Errorf("at most %d scope entries per task", maxSpawnScope)
+	}
+	out := make([]spawnScope, 0, len(in))
+	seen := map[string]bool{}
+	for _, e := range in {
+		kind := strings.ToLower(strings.TrimSpace(e.Kind))
+		value := strings.TrimSpace(e.Value)
+		if value == "" {
+			continue
+		}
+		if !spawnScopeKinds[kind] {
+			return nil, fmt.Errorf("invalid scope kind %q: use root_domain, subdomain, ip, cidr, company or keyword", e.Kind)
+		}
+		key := kind + "\x00" + strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, spawnScope{Kind: kind, Value: value})
+	}
+	return out, nil
+}
+
+// spawnConfirmMessage is the text of the approval card a chat operator sees
+// before spawn_task creates a task.
+func spawnConfirmMessage(name, description, goal string, scope []spawnScope) string {
+	title := name
+	if title == "" {
+		title = description
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Create the task %q and start its agents?\nGoal: %s", title, goal)
+	if len(scope) == 0 {
+		b.WriteString("\nScope: none given")
+	} else {
+		parts := make([]string, 0, len(scope))
+		for _, e := range scope {
+			parts = append(parts, e.Kind+" "+e.Value)
+		}
+		b.WriteString("\nScope: " + strings.Join(parts, ", "))
+	}
+	return b.String()
 }
 
 func (s *Server) toolPauseTask() actool.CoreTool {
@@ -560,6 +684,7 @@ func (s *Server) seedOrchestrationTools() {
 	s.seedTaskCredentialBindings() // save/list_task_credential onto worker + pentest (one-time, #3)
 	s.healListTaskCredentialsSchema()
 	s.seedAutoReportFindingBinding()
+	s.seedPentestTaskBindings() // pentest (chat) can propose tracks as tasks (one-time)
 	s.unbindGoalMetDefault()
 	s.reseedGoalsPrompt()             // goals prompt gains the "extract operation constraints" step → old DBs append a new default version (one-time)
 	s.reseedMainAgentPrompt()         // mainagent prompt gains "after goals are met, ask via add_intent whether to register a goal" (one-time)
@@ -661,7 +786,7 @@ WHERE key='add_task_scope' AND system AND description=$2`, seed.Desc, oldTaskSco
 // reaches an old DB otherwise. Preserves each tool's agent binding + enabled flag.
 // Bump the flag whenever these tools' schemas/descriptions change in code.
 func (s *Server) refreshBuiltinToolSchemas() {
-	const flag = "tool_schema_refresh_v7_list_facts_paging"
+	const flag = "tool_schema_refresh_v8_spawn_task_scope"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
@@ -935,6 +1060,22 @@ func (s *Server) seedAutoReportFindingBinding() {
 	}
 	if err := s.m.pg.AddAgentToToolBinding("auto", []string{"report_finding"}); err != nil {
 		log.Printf("[auto] report_finding default binding failed: %v", err)
+		return
+	}
+	_ = s.m.pg.SetSetting(flag, "true")
+}
+
+// seedPentestTaskBindings lets the solo "pentest" chat agent see existing tasks
+// and turn a track it found (a web app, a network range) into a task, ONCE
+// (settings flag), without overriding a later unbind in the UI. spawn_task asks
+// the operator to approve every task created from a chat.
+func (s *Server) seedPentestTaskBindings() {
+	const flag = "pentest_task_tools_v1"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	if err := s.m.pg.AddAgentToToolBinding("pentest", []string{"spawn_task", "list_tasks", "get_task_graph", "list_task_findings"}); err != nil {
+		log.Printf("[pentest] task tools default binding failed: %v", err)
 		return
 	}
 	_ = s.m.pg.SetSetting(flag, "true")
