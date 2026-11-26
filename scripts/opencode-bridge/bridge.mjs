@@ -17,13 +17,15 @@ export const CFG = {
   upstream: (env.OPENCODE_URL || 'http://127.0.0.1:28894').replace(/\/+$/, ''),
   serviceJson: env.OPENCODE_SERVICE_JSON || path.join(os.homedir(), '.config', 'opencode', 'service.json'),
   timeoutMs: Number(env.BRIDGE_TIMEOUT_MS || 180000),
-  concurrency: Number(env.BRIDGE_CONCURRENCY || 2),
+  concurrency: Number(env.BRIDGE_CONCURRENCY || 1),
   maxQueue: Number(env.BRIDGE_MAX_QUEUE || 8),
   providerID: env.BRIDGE_PROVIDER || 'opencode',
   toolDescMax: Number(env.BRIDGE_TOOL_DESC_MAX || 240),
   discoveryTtlMs: 5 * 60 * 1000,
   statusPollMs: Number(env.BRIDGE_STATUS_POLL_MS || 1000),
-  quotaCooldownMs: Number(env.BRIDGE_QUOTA_COOLDOWN_MS || 60 * 1000),
+  quotaCooldownMs: Number(env.BRIDGE_QUOTA_COOLDOWN_MS || 30 * 1000),
+  minAccountPauseMs: Number(env.BRIDGE_MIN_ACCOUNT_PAUSE_MS || 10 * 1000),
+  failoverAfterLimits: Number(env.BRIDGE_FAILOVER_AFTER_LIMITS || 4),
   maxCooldownMs: Number(env.BRIDGE_MAX_COOLDOWN_MS || 5 * 60 * 1000),
   maxUpstreamRetries: Number(env.BRIDGE_MAX_UPSTREAM_RETRIES || 2),
   unavailableCooldownMs: Number(env.BRIDGE_UNAVAILABLE_COOLDOWN_MS || 2 * 60 * 1000),
@@ -133,7 +135,7 @@ export function setCooldown(m, ms) {
   const v = Number.isFinite(ms) && ms > 0 ? ms : CFG.quotaCooldownMs;
   cooldown.set(m, Date.now() + Math.min(CFG.maxCooldownMs, Math.max(1000, v)));
 }
-export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; detectedApi = null; }
+export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; detectedApi = null; accountPauseUntil = 0; rateLimitStreak = 0; }
 
 function parseRetryAfterMs(res, bodyText) {
   const h = res.headers.get('retry-after');
@@ -296,7 +298,7 @@ async function readUpstream(res, what) {
   const text = await res.text();
   if (!res.ok) {
     if (FREE_LIMIT.test(text) || res.status === 429 || res.status === 402) {
-      throw new HttpError(429, `quota exceeded (${what})`, { quota: true, retryAfterMs: parseRetryAfterMs(res, text) ?? CFG.quotaCooldownMs });
+      throw new HttpError(429, `quota exceeded (${what}): ${text.slice(0, 200)}`, { quota: true, retryAfterMs: parseRetryAfterMs(res, text) ?? CFG.quotaCooldownMs });
     }
     if (res.status === 401 || res.status === 403) throw new HttpError(401, 'OpenCode rejected the bridge credentials (check OPENCODE_PASSWORD)');
     if (res.status === 404) throw new HttpError(404, `OpenCode endpoint not found (${what})`);
@@ -431,19 +433,37 @@ export async function chatCompletion(body, { session, signal } = {}) {
   const prompt = buildPrompt(body.messages, tools);
   session = session || 'bridge-' + crypto.randomUUID();
 
+  // Zen's RateLimit.Free is per account, not per model: after one refusal every
+  // model is refused too, and trying them all only feeds the limit. So pause the
+  // whole account, tell ARTEX when to retry, and rotate only past models that
+  // are broken on their own (unavailable / inference failed).
+  if (accountPauseUntil > Date.now()) throw accountPaused();
+
   await acquire(signal);
   try {
+    if (accountPauseUntil > Date.now()) throw accountPaused();
     const order = orderedModels(body.model, await discoverModels());
-    let lastQuota = null;
     let lastSkip = null;
+    const attempt = async (model, text) => {
+      try {
+        return await generateText(model, text, session, signal);
+      } catch (e) {
+        if (e.quota) {
+          rateLimitStreak++;
+          const ms = Math.min(CFG.maxCooldownMs, Math.max(CFG.minAccountPauseMs, Number.isFinite(e.retryAfterMs) ? e.retryAfterMs : CFG.quotaCooldownMs));
+          accountPauseUntil = Date.now() + ms;
+          log(`rate limited on ${model}, account paused ${Math.round(ms / 1000)}s (streak ${rateLimitStreak}): ${e.message}`);
+          throw accountPaused();
+        }
+        throw e;
+      }
+    };
     for (const model of order) {
       if (coolUntil(model) > Date.now()) continue;
       let reply;
       try {
-        reply = await generateText(model, prompt, session, signal);
+        reply = await attempt(model, prompt);
       } catch (e) {
-        if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; log(`model ${model} rate limited, parked ${Math.round((coolUntil(model) - Date.now()) / 1000)}s`); continue; }
-        // A model OpenCode cannot reach right now: park it briefly, try the next one.
         if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; log(`model ${model} unavailable, skipped: ${e.message}`); continue; }
         throw e;
       }
@@ -451,24 +471,36 @@ export async function chatCompletion(body, { session, signal } = {}) {
       let completionText = reply;
       if (!r.ok) { // one repair attempt on the same model
         const repair = prompt + `\n\n[your previous reply was invalid: ${r.reason}]\nReply again with EXACTLY ONE valid JSON object, nothing else.`;
-        try { completionText = await generateText(model, repair, session, signal); }
+        try { completionText = await attempt(model, repair); }
         catch (e) {
-          if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; continue; }
           if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; continue; }
           throw e;
         }
         r = interpret(completionText, tools);
         if (!r.ok) throw new HttpError(502, `model ${model} did not produce a valid reply: ${r.reason}`);
       }
+      rateLimitStreak = 0;
       log(`served by ${model} (${r.kind}${r.name ? ':' + r.name : ''})`);
       return toOpenAI(r, model, prompt, completionText);
     }
-    // everything exhausted / cooling down
     const wait = Math.min(...order.map(coolUntil).filter((t) => t > Date.now()), Infinity) - Date.now();
     if (!isFinite(wait)) throw new HttpError(502, lastSkip ? `no model available: ${lastSkip.message}` : 'no model available');
-    if (wait < 60000) throw new HttpError(429, 'all OpenCode free models are rate limited', { retryAfter: Math.ceil(wait / 1000) });
-    throw new HttpError(402, `quota exceeded on all OpenCode free models${lastSkip ? ' (some are unavailable)' : ''}; next one usable around ${new Date(Date.now() + wait).toISOString()}`, { retryAfter: Math.ceil(wait / 1000) });
+    throw new HttpError(402, `quota exceeded: every OpenCode free model is unavailable right now (${lastSkip?.message ?? 'unknown'})`, { retryAfter: Math.ceil(wait / 1000) });
   } finally { release(); }
+}
+
+// Account-wide pause after a Zen rate limit. A short pause answers 429 +
+// Retry-After (ARTEX waits and retries the same profile); after several limits
+// in a row without a success it answers 402 "quota exceeded", which makes
+// ARTEX fail over to its next profile.
+let accountPauseUntil = 0;
+let rateLimitStreak = 0;
+function accountPaused() {
+  const secs = Math.max(1, Math.ceil((accountPauseUntil - Date.now()) / 1000));
+  if (rateLimitStreak >= CFG.failoverAfterLimits) {
+    return new HttpError(402, `quota exceeded: OpenCode Zen keeps rate limiting this account (${rateLimitStreak} times in a row); retry in ${secs}s`, { retryAfter: secs });
+  }
+  return new HttpError(429, `OpenCode Zen is rate limiting this account; retry in ${secs}s`, { retryAfter: secs });
 }
 
 function toOpenAI(r, model, prompt, completionText) {

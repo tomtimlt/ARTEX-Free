@@ -43,6 +43,9 @@ await new Promise(r => mock.listen(0, '127.0.0.1', r));
 process.env.OPENCODE_URL = `http://127.0.0.1:${mock.address().port}`;
 process.env.BRIDGE_STATUS_POLL_MS = '50';
 process.env.BRIDGE_AGENT = 'bridge';
+process.env.BRIDGE_MIN_ACCOUNT_PAUSE_MS = '30';
+process.env.BRIDGE_MAX_COOLDOWN_MS = '60';
+process.env.BRIDGE_FAILOVER_AFTER_LIMITS = '3';
 const B = await import('./bridge.mjs');
 const server = B.createServer();
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -113,32 +116,43 @@ test('stream:true -> 400', async () => {
   assert.equal((await post(req({ stream: true }))).status, 400);
 });
 
-test('free-tier retry status rotates to next model fast, reports real model', async () => {
-  script = [{ retry: 'Free usage exceeded, subscribe to Go', reason: 'free_tier_limit', nextIn: 3600000 }, { text: '{"type":"final","content":"via pickle"}' }];
+const pause = (ms = 80) => new Promise(r => setTimeout(r, ms));
+
+test('account rate limit: pause, 429 + Retry-After, no hammering of other models', async () => {
+  script = [{ retry: 'Free usage exceeded, subscribe to Go', reason: 'free_tier_limit', nextIn: 3600000 }];
   const t0 = Date.now();
+  const r = await post(req());
+  assert.ok(Date.now() - t0 < 2000, 'detected from /session/status, not after the timeout');
+  assert.equal(r.status, 429); assert.ok(Number(r.headers.get('retry-after')) >= 1);
+  assert.equal(seen.length, 1, 'only one model was tried');
+  // while paused, nothing reaches OpenCode
+  assert.equal((await post(req())).status, 429); assert.equal(seen.length, 1);
+  // after the pause the same model answers
+  await pause(); retryStatus = {};
+  script = [{ text: '{"type":"final","content":"back"}' }];
   const j = await (await post(req())).json();
-  assert.ok(Date.now() - t0 < 2000, 'quota detected from /session/status, not after the timeout');
-  assert.equal(j.model, 'opencode/big-pickle'); assert.equal(seen[1].body.model.modelID, 'big-pickle');
-  // deepseek is now cooling down: next request goes straight to big-pickle
-  script = [{ text: '{"type":"final","content":"again"}' }];
-  await post(req()); assert.equal(seen.at(-1).body.model.modelID, 'big-pickle');
+  assert.equal(j.model, 'opencode/deepseek-v4.1-flash-free'); assert.equal(j.choices[0].message.content, 'back');
 });
 
-test('model error FreeUsageLimitError counts as quota', async () => {
-  script = [{ error: { name: 'APIError', data: { message: 'Free usage limit reached. Free models work in OpenCode' } } }, { text: '{"type":"final","content":"ok"}' }];
-  const j = await (await post(req())).json();
-  assert.equal(j.model, 'opencode/big-pickle');
+test('model error FreeUsageLimitError counts as a rate limit', async () => {
+  script = [{ error: { name: 'APIError', data: { message: 'Free usage limit reached. Free models work in OpenCode' } } }];
+  assert.equal((await post(req())).status, 429); assert.equal(seen.length, 1);
 });
 
-test('all exhausted, short retry -> 429 + Retry-After', async () => {
-  script = [{ retry: 'Rate limited', reason: 'rate_limit', nextIn: 20000 }, { retry: 'Rate limited', reason: 'rate_limit', nextIn: 20000 }];
-  const r = await post(req()); assert.equal(r.status, 429); assert.ok(Number(r.headers.get('retry-after')) > 0);
-});
-
-test('all exhausted, long retry -> 402 quota exceeded', async () => {
-  script = [{ retry: 'Free usage exceeded', reason: 'free_tier_limit', nextIn: 3 * 3600000 }, { status: 429, body: { retryAfterMs: 3 * 3600000 } }];
+test('several rate limits in a row -> 402 quota exceeded (ARTEX fails over)', async () => {
+  desktop = true;
+  for (let i = 0; i < 2; i++) {
+    script = [{ status: 429, body: { retryAfterMs: 3 * 3600000 } }];
+    assert.equal((await post(req())).status, 429); await pause();
+  }
+  script = [{ status: 429, body: { retryAfterMs: 3 * 3600000 } }];
   const r = await post(req()); const j = await r.json();
   assert.equal(r.status, 402); assert.match(j.error.message, /quota exceeded/);
+});
+
+test('model error other than auth -> 502', async () => {
+  script = [{ error: { name: 'APIError', data: { message: 'context length exceeded' } } }];
+  assert.equal((await post(req())).status, 502);
 });
 
 test('model OpenCode keeps retrying is skipped, next model answers', async () => {
@@ -149,11 +163,6 @@ test('model OpenCode keeps retrying is skipped, next model answers', async () =>
   assert.equal(j.choices[0].message.content, 'next');
 });
 
-test('invalid Zen key -> 401 with a clear message', async () => {
-  script = [{ error: { name: 'APIError', data: { message: 'Invalid credential' } } }];
-  const r = await post(req()); const j = await r.json();
-  assert.equal(r.status, 401); assert.match(j.error.message, /OPENCODE_ZEN_API_KEY/);
-});
 
 test('desktop app without session API falls back to generate/text', async () => {
   desktop = true;
@@ -163,10 +172,12 @@ test('desktop app without session API falls back to generate/text', async () => 
   assert.deepEqual(seen[0].body.model, { providerID: 'opencode', id: 'deepseek-v4.1-flash-free' });
   assert.match(seen[0].body.prompt, /\[user\]\nhi/);
   // remembered: next call goes straight to generate/text
-  script = [{ status: 429, body: { retryAfterMs: 3600000 } }, { text: '{"type":"final","content":"ok"}' }];
+  script = [{ text: '{"type":"final","content":"ok"}' }];
   const k = await (await post(req())).json();
-  assert.equal(k.model, 'opencode/big-pickle');
+  assert.equal(k.choices[0].message.content, 'ok');
+  assert.equal(seen.length, 2);
 });
+
 
 test('a model failing with 400 inference_failed is skipped, next model answers', async () => {
   desktop = true;
@@ -176,14 +187,17 @@ test('a model failing with 400 inference_failed is skipped, next model answers',
   assert.equal(j.model, 'opencode/big-pickle');
 });
 
-test('other model error -> 502', async () => {
-  script = [{ error: { name: 'APIError', data: { message: 'context length exceeded' } } }];
-  assert.equal((await post(req())).status, 502);
+
+test('invalid Zen key -> 401 with a clear message', async () => {
+  script = [{ error: { name: 'APIError', data: { message: 'Invalid credential' } } }];
+  const r = await post(req()); const j = await r.json();
+  assert.equal(r.status, 401); assert.match(j.error.message, /OPENCODE_ZEN_API_KEY/);
 });
+
 
 test('upstream 401 -> 401, 5xx -> 502', async () => {
   script = [{ status: 401 }]; assert.equal((await post(req())).status, 401);
-  // 5xx on every model: each is skipped, the request ends with 402 (all parked)
+  // 5xx on every model: each is skipped, the request ends with 402 so ARTEX fails over
   script = [{ status: 500 }, { status: 500 }]; assert.equal((await post(req())).status, 402);
 });
 
