@@ -28,6 +28,7 @@ func TestIsQuotaExhaustedMessage(t *testing.T) {
 		`Free usage exceeded`,
 		`status 429: {"type":"error","error":{"type":"FreeUsageLimitError","message":"Free usage exceeded, subscribe to Go."}}`,
 		`status 429: Free usage exceeded, rate limit applies`,
+		`openai: status 429: {"type":"error","error":{"type":"FreeUsageLimitError","message":"Free usage limit reached. Free models work in OpenCode (https://opencode.ai); subscribe to OpenCode Go to keep going: https://opencode.ai/go"}}`,
 	}
 	for _, message := range positive {
 		if !IsQuotaExhaustedMessage(message) {

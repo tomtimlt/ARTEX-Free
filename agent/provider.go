@@ -452,11 +452,15 @@ func IsQuotaExhaustedMessage(message string) bool {
 	if nonFailoverHTTPStatus.MatchString(message) {
 		return false
 	}
-	// OpenCode Zen answers a spent free-model quota with "Free usage exceeded"
-	// (often HTTP 429, body type FreeUsageLimitError). That is a long-lived
+	// OpenCode Zen answers a spent or unavailable free-model quota with "Free
+	// usage exceeded" or "Free usage limit reached" (HTTP 429, body type
+	// FreeUsageLimitError). The second is also what an API-key client gets for a
+	// free model that Zen only serves inside the OpenCode app. That is a long-lived
 	// exhaustion, not a transient limit, so it is checked before the rate-limit
 	// exclusion below; auth and 5xx statuses were already excluded above.
-	if strings.Contains(message, "free usage exceeded") {
+	if strings.Contains(message, "free usage exceeded") ||
+		strings.Contains(message, "free usage limit reached") ||
+		strings.Contains(message, "freeusagelimiterror") {
 		return true
 	}
 	// Provider APIs frequently describe an ordinary rate limit as "quota
