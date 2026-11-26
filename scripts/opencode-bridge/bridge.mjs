@@ -22,6 +22,10 @@ export const CFG = {
   providerID: env.BRIDGE_PROVIDER || 'opencode',
   toolDescMax: Number(env.BRIDGE_TOOL_DESC_MAX || 240),
   discoveryTtlMs: 5 * 60 * 1000,
+  statusPollMs: Number(env.BRIDGE_STATUS_POLL_MS || 1000),
+  maxUpstreamRetries: Number(env.BRIDGE_MAX_UPSTREAM_RETRIES || 2),
+  unavailableCooldownMs: Number(env.BRIDGE_UNAVAILABLE_COOLDOWN_MS || 5 * 60 * 1000),
+  agent: env.BRIDGE_AGENT || '',
 };
 
 export const FALLBACK_MODELS = [
@@ -93,7 +97,7 @@ export async function discoverModels(force = false) {
       const j = await r.json();
       const list = Array.isArray(j) ? j : j.data || j.models || [];
       ids = list.filter(m => (m.providerID ?? m.provider) === CFG.providerID
-        && Number(m.cost?.output ?? m.cost?.completion ?? 0) === 0
+        && Number((Array.isArray(m.cost) ? m.cost[0] : m.cost)?.output ?? 0) === 0
         && m.capabilities?.tools !== false
         && m.enabled !== false
         && (m.status == null || m.status === 'active'))
@@ -118,7 +122,7 @@ export function orderedModels(requested, discovered) {
 const cooldown = new Map(); // model -> epoch ms
 const coolUntil = m => cooldown.get(m) || 0;
 export function setCooldown(m, ms) { cooldown.set(m, Date.now() + Math.max(1000, ms)); }
-export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; }
+export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; }
 
 function parseRetryAfterMs(res, bodyText) {
   const h = res.headers.get('retry-after');
@@ -236,38 +240,121 @@ export function interpret(text, tools) {
 }
 
 // ----------------------------------------------------- calling OpenCode
-async function generateText(model, prompt, session, signal) {
+// OpenCode's own tools (bash, edit, webfetch…) are switched off on every call:
+// the model must only describe tool calls, ARTEX executes them.
+const FALLBACK_TOOL_IDS = ['invalid', 'question', 'bash', 'read', 'glob', 'grep', 'edit', 'write', 'task', 'webfetch', 'todowrite', 'websearch', 'skill', 'apply_patch'];
+let toolCache = { at: 0, ids: null };
+async function openCodeToolIds() {
+  if (toolCache.ids && Date.now() - toolCache.at < CFG.discoveryTtlMs) return toolCache.ids;
+  let ids = FALLBACK_TOOL_IDS;
+  try {
+    const r = await upstreamFetch('/experimental/tool/ids', { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const j = await r.json();
+      if (Array.isArray(j) && j.length) ids = [...new Set([...j, ...FALLBACK_TOOL_IDS])];
+    }
+  } catch {}
+  toolCache = { at: Date.now(), ids };
+  return ids;
+}
+
+const FREE_LIMIT = /free usage|free_tier_limit|freeusagelimit|quota|rate.?limit|too many requests|\b429\b/i;
+
+// OpenCode retries a refused model call on its own (forever, for the free-tier
+// limit) and only reports it in /session/status. Watch that status so a quota
+// refusal comes back in about a second instead of after the bridge timeout.
+async function watchRetry(sid, signal) {
+  while (!signal.aborted) {
+    await new Promise((r) => setTimeout(r, CFG.statusPollMs));
+    if (signal.aborted) break;
+    try {
+      const r = await upstreamFetch('/session/status', { signal });
+      if (!r.ok) continue;
+      const st = (await r.json())?.[sid];
+      if (st?.type !== 'retry') continue;
+      const reason = `${st.action?.reason ?? ''} ${st.message ?? ''}`;
+      if (FREE_LIMIT.test(reason)) {
+        const next = Number(st.next);
+        const ms = Number.isFinite(next) && next > Date.now() ? next - Date.now() : 15 * 60 * 1000;
+        throw new HttpError(429, `quota exceeded: ${st.message || st.action?.reason}`, { quota: true, retryAfterMs: ms });
+      }
+      if (Number(st.attempt) >= CFG.maxUpstreamRetries) throw new HttpError(502, `OpenCode keeps retrying: ${st.message ?? 'unknown error'}`, { skip: true });
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+    }
+  }
+  return new Promise(() => {}); // aborted: never settles, the race is already decided
+}
+
+async function readUpstream(res, what) {
+  const text = await res.text();
+  if (!res.ok) {
+    if (FREE_LIMIT.test(text) || res.status === 429 || res.status === 402) {
+      throw new HttpError(429, `quota exceeded (${what})`, { quota: true, retryAfterMs: parseRetryAfterMs(res, text) ?? 15 * 60 * 1000 });
+    }
+    if (res.status === 401 || res.status === 403) throw new HttpError(401, 'OpenCode rejected the bridge credentials (check OPENCODE_PASSWORD)');
+    if (res.status === 404) throw new HttpError(404, `OpenCode endpoint not found (${what})`);
+    if (res.status === 400 || res.status === 422) throw new HttpError(400, `OpenCode rejected the request (${what}, ${res.status})`);
+    throw new HttpError(502, `OpenCode error ${res.status} (${what})`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(502, `OpenCode returned a non-JSON body (${what}); is OPENCODE_URL the OpenCode server?`);
+  }
+}
+
+// One throwaway OpenCode session per request: ARTEX already sends the whole
+// conversation, so nothing may accumulate on the OpenCode side.
+async function generateText(model, prompt, _session, signal) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(new HttpError(504, 'upstream timeout')), CFG.timeoutMs);
   const onAbort = () => ctl.abort(new HttpError(499, 'client closed request'));
   signal?.addEventListener('abort', onAbort, { once: true });
+  const aborted = new Promise((_, reject) => ctl.signal.addEventListener('abort', () => reject(ctl.signal.reason), { once: true }));
+  aborted.catch(() => {});
+  let sid;
   try {
-    let res;
+    let created;
     try {
-      res = await upstreamFetch('/api/experimental/generate/text', {
-        method: 'POST', session, signal: ctl.signal,
-        body: { prompt, model: { providerID: CFG.providerID, id: model } },
-      });
+      created = await readUpstream(await upstreamFetch('/session', { method: 'POST', body: { title: 'artex-bridge' }, signal: ctl.signal }), 'create session');
     } catch (e) {
+      if (e instanceof HttpError) throw e;
       if (ctl.signal.aborted && ctl.signal.reason instanceof HttpError) throw ctl.signal.reason;
       throw new HttpError(502, `OpenCode unreachable: ${e.message}`);
     }
-    const text = await res.text();
-    if (!res.ok) {
-      if (isQuota(res, text)) {
-        const ms = parseRetryAfterMs(res, text) ?? 15 * 60 * 1000;
-        throw new HttpError(429, `quota exceeded for ${model}`, { quota: true, retryAfterMs: ms });
-      }
-      if (res.status === 401 || res.status === 403) throw new HttpError(401, 'OpenCode rejected the bridge credentials');
-      if (res.status === 404) throw new HttpError(404, `model or endpoint not found upstream (${model})`);
-      if (res.status === 400 || res.status === 422) throw new HttpError(400, `OpenCode rejected the request (${res.status})`);
-      throw new HttpError(502, `OpenCode error ${res.status}`);
+    sid = created?.id;
+    if (!sid) throw new HttpError(502, 'OpenCode did not return a session id');
+    const tools = Object.fromEntries((await openCodeToolIds()).map((id) => [id, false]));
+    const body = { model: { providerID: CFG.providerID, modelID: model }, tools, parts: [{ type: 'text', text: prompt }] };
+    if (CFG.agent) body.agent = CFG.agent;
+    const send = upstreamFetch(`/session/${sid}/message`, { method: 'POST', body, signal: ctl.signal })
+      .then((res) => readUpstream(res, 'message'), (e) => {
+        if (ctl.signal.aborted && ctl.signal.reason instanceof HttpError) throw ctl.signal.reason;
+        throw new HttpError(502, `OpenCode unreachable: ${e.message}`);
+      });
+    send.catch(() => {});
+    const out = await Promise.race([send, watchRetry(sid, ctl.signal), aborted]);
+    const err = out?.info?.error;
+    if (err) {
+      const msg = `${err.name ?? ''} ${err.data?.message ?? err.message ?? ''}`.trim();
+      if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: 15 * 60 * 1000 });
+      throw new HttpError(502, `OpenCode model error: ${msg || 'unknown'}`);
     }
-    let out; try { out = JSON.parse(text); } catch { throw new HttpError(502, 'OpenCode returned a non-JSON body'); }
-    const t = out?.data?.text ?? out?.text;
-    if (typeof t !== 'string') throw new HttpError(502, 'OpenCode response has no data.text');
-    return t;
-  } finally { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); }
+    const text = (out?.parts ?? []).filter((p) => p?.type === 'text' && typeof p.text === 'string').map((p) => p.text).join('');
+    if (!text) throw new HttpError(502, 'OpenCode returned no text');
+    return text;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+    if (!ctl.signal.aborted) ctl.abort(new HttpError(499, 'done'));
+    if (sid) {
+      const quiet = { signal: AbortSignal.timeout(5000) };
+      upstreamFetch(`/session/${sid}/abort`, { method: 'POST', body: {}, ...quiet })
+        .catch(() => {})
+        .finally(() => upstreamFetch(`/session/${sid}`, { method: 'DELETE', ...quiet }).catch(() => {}));
+    }
+  }
 }
 
 // --------------------------------------------------------- orchestration
@@ -282,6 +369,7 @@ export async function chatCompletion(body, { session, signal } = {}) {
   try {
     const order = orderedModels(body.model, await discoverModels());
     let lastQuota = null;
+    let lastSkip = null;
     for (const model of order) {
       if (coolUntil(model) > Date.now()) continue;
       let reply;
@@ -289,6 +377,8 @@ export async function chatCompletion(body, { session, signal } = {}) {
         reply = await generateText(model, prompt, session, signal);
       } catch (e) {
         if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; log(`model ${model} in cooldown for ${Math.round(e.retryAfterMs / 1000)}s`); continue; }
+        // A model OpenCode cannot reach right now: park it briefly, try the next one.
+        if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; log(`model ${model} unavailable, skipped: ${e.message}`); continue; }
         throw e;
       }
       let r = interpret(reply, tools);
@@ -296,7 +386,11 @@ export async function chatCompletion(body, { session, signal } = {}) {
       if (!r.ok) { // one repair attempt on the same model
         const repair = prompt + `\n\n[your previous reply was invalid: ${r.reason}]\nReply again with EXACTLY ONE valid JSON object, nothing else.`;
         try { completionText = await generateText(model, repair, session, signal); }
-        catch (e) { if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; continue; } throw e; }
+        catch (e) {
+          if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; continue; }
+          if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; continue; }
+          throw e;
+        }
         r = interpret(completionText, tools);
         if (!r.ok) throw new HttpError(502, `model ${model} did not produce a valid reply: ${r.reason}`);
       }
@@ -305,9 +399,9 @@ export async function chatCompletion(body, { session, signal } = {}) {
     }
     // everything exhausted / cooling down
     const wait = Math.min(...order.map(coolUntil).filter(t => t > Date.now()).concat(lastQuota ? [Date.now() + lastQuota.retryAfterMs] : [Infinity])) - Date.now();
-    if (!isFinite(wait)) throw new HttpError(502, 'no model available');
+    if (!isFinite(wait)) throw new HttpError(502, lastSkip ? `no model available: ${lastSkip.message}` : 'no model available');
     if (wait < 60000) throw new HttpError(429, 'all OpenCode free models are rate limited', { retryAfter: Math.ceil(wait / 1000) });
-    throw new HttpError(402, `quota exceeded on all OpenCode free models; resets around ${new Date(Date.now() + wait).toISOString()}`, { retryAfter: Math.ceil(wait / 1000) });
+    throw new HttpError(402, `quota exceeded on all OpenCode free models${lastSkip ? ' (some are unavailable)' : ''}; next one usable around ${new Date(Date.now() + wait).toISOString()}`, { retryAfter: Math.ceil(wait / 1000) });
   } finally { release(); }
 }
 
@@ -351,7 +445,10 @@ export function createServer() {
       }
       if (req.method === 'GET' && url.pathname === '/health') {
         let upstream = 'down';
-        try { const r = await upstreamFetch('/api/model?types=chat', { signal: AbortSignal.timeout(3000) }); upstream = r.ok ? 'ok' : `http_${r.status}`; } catch {}
+        try {
+          const r = await upstreamFetch('/api/model?types=chat', { signal: AbortSignal.timeout(3000) });
+          upstream = !r.ok ? `http_${r.status}` : /json/.test(r.headers.get('content-type') || '') ? 'ok' : 'not_opencode_api';
+        } catch {}
         return send(res, 200, { status: 'ok', upstream, active, queued: waiters.length });
       }
       if (req.method === 'GET' && url.pathname === '/v1/models') {

@@ -1,0 +1,68 @@
+# OpenCode in Docker, for the free OpenCode Zen models.
+#
+# Zen serves its free models only to the OpenCode app, so ARTEX reaches them
+# through a real OpenCode server plus the opencode-bridge (OpenAI-compatible).
+# Both run on the Compose network only: nothing is published on the host, so no
+# firewall prompt and no admin rights are needed.
+#
+#   .env:  OPENCODE_SERVER_PASSWORD=<random>   (OpenCode server password)
+#          OPENCODE_BRIDGE_TOKEN=<random>      (the API key ARTEX sends to the bridge)
+#   run:   docker compose -f docker-compose.yml -f docker-compose.opencode.yml up -d --build
+#          (add -f docker-compose.windows.yml first on Windows)
+#   login: docker compose -f docker-compose.yml -f docker-compose.opencode.yml run --rm -it opencode opencode auth login
+#
+# ARTEX LLM profile: format "OpenAI (Chat Completions)", base URL
+# http://opencode-bridge:8789/v1, API key = OPENCODE_BRIDGE_TOKEN, streaming off.
+# See scripts/opencode-bridge/README.md.
+
+x-opencode-image: &opencode-image
+  build:
+    context: ./scripts/opencode-bridge
+  image: artex-opencode:local
+
+services:
+  opencode:
+    <<: *opencode-image
+    command: ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    environment:
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?Please set OPENCODE_SERVER_PASSWORD in .env}
+      # Locked down: no project config, no plugins, no sharing, no updates, every
+      # permission denied. The "bridge" agent has no tools; the bridge also turns
+      # every OpenCode tool off per request, so OpenCode never runs anything.
+      OPENCODE_DISABLE_PROJECT_CONFIG: "1"
+      OPENCODE_PURE: "1"
+      OPENCODE_DISABLE_AUTOUPDATE: "1"
+      OPENCODE_DISABLE_SHARE: "1"
+      OPENCODE_CONFIG_CONTENT: '{"share":"disabled","autoupdate":false,"snapshot":false,"lsp":false,"formatter":false,"permission":{"*":"deny","bash":"deny","edit":"deny","read":"deny","glob":"deny","grep":"deny","webfetch":"deny","websearch":"deny","task":"deny","skill":"deny","external_directory":"deny","todowrite":"deny","question":"deny"},"agent":{"bridge":{"mode":"primary","description":"JSON-only model endpoint for the ARTEX bridge","prompt":"You are a language model reached through an API bridge. Follow the instructions in the conversation exactly. You have no tools.","permission":{"*":"deny"}}}}'
+    volumes:
+      - opencode-data:/home/node/.local/share/opencode
+    security_opt:
+      - "no-new-privileges:true"
+    restart: unless-stopped
+
+  opencode-bridge:
+    <<: *opencode-image
+    command: ["node", "/bridge/bridge.mjs"]
+    depends_on:
+      - opencode
+    environment:
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_TOKEN: ${OPENCODE_BRIDGE_TOKEN:?Please set OPENCODE_BRIDGE_TOKEN in .env}
+      BRIDGE_AGENT: bridge
+      OPENCODE_URL: http://opencode:4096
+      OPENCODE_USERNAME: opencode
+      OPENCODE_PASSWORD: ${OPENCODE_SERVER_PASSWORD}
+    security_opt:
+      - "no-new-privileges:true"
+    restart: unless-stopped
+
+  artex:
+    environment:
+      # The model-list check refuses private addresses unless listed here.
+      ARTEX_LLM_PRIVATE_ENDPOINTS: opencode-bridge:8789
+    depends_on:
+      opencode-bridge:
+        condition: service_started
+
+volumes:
+  opencode-data:
