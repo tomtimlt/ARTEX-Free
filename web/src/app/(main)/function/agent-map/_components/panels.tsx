@@ -208,7 +208,7 @@ export function Roster({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate font-medium text-sm">{agentName(a.id)}</span>
-                  <span className="bg-[#141a2b] px-1 font-(family-name:--font-pixel) text-[#ffd166] text-[10px]">
+                  <span className="bg-[#17332d] px-1 font-(family-name:--font-pixel) text-[#ffd166] text-[10px]">
                     {t("LV {n}", { n: level })}
                   </span>
                 </div>
@@ -318,9 +318,7 @@ export function Badges({ stats }: { stats: MapStats }) {
             <span
               className={cn(
                 "flex size-7 items-center justify-center",
-                on
-                  ? "bg-(--px-yellow) text-[oklch(0.17_0.028_255)] shadow-[2px_2px_0_var(--px-shadow-color)]"
-                  : "bg-muted",
+                on ? "bg-(--px-yellow) text-[#17332d] shadow-[2px_2px_0_var(--px-shadow-color)]" : "bg-muted",
               )}
             >
               <Icon className="size-4" />
@@ -365,7 +363,7 @@ export function QuestLog({ played }: { played: MapAction[] }) {
               {Number.isNaN(time.getTime()) ? "--:--:--" : time.toLocaleTimeString([], { hour12: false })}
             </span>
             <span
-              className="w-10 shrink-0 bg-[#141a2b] px-1 text-center font-(family-name:--font-pixel) text-[10px]"
+              className="w-10 shrink-0 bg-[#17332d] px-1 text-center font-(family-name:--font-pixel) text-[10px]"
               style={{ color: look.color }}
             >
               {tagFor(a.worker)}

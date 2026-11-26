@@ -54,52 +54,58 @@
   --font-pixel: var(--font-pixel);
 }
 
-/* Default theme: "ARTEX Arcade". A retro-console palette: deep ink-navy
-surfaces, a hot coral signal colour, butter-yellow highlights and ice-blue
-info, set in a pixel display face for headings. Hard offset "pixel" shadows
-and a dot grid give the 8-bit feel; body text stays in a readable sans.
+/* Default theme: "ARTEX Lagoon". A tropical pixel-art palette: deep lagoon
+teal, warm paper cream with a dot grid, coral and sunny yellow accents and
+pastel tiles (peach, mint, salmon, sky). Thick ink borders and hard offset
+shadows give the 8-bit look; titles use the pixel face, body text stays sans.
 Used when no data-theme-preset is set or when 'default' is selected. */
 :root {
-  --radius: 0.375rem;
-  --background: oklch(0.965 0.014 85);
-  --foreground: oklch(0.24 0.035 255);
-  --card: oklch(0.985 0.008 85);
-  --card-foreground: oklch(0.24 0.035 255);
-  --popover: oklch(0.985 0.008 85);
-  --popover-foreground: oklch(0.24 0.035 255);
-  --primary: oklch(0.63 0.19 36);
-  --primary-foreground: oklch(0.99 0.01 85);
-  --secondary: oklch(0.93 0.02 85);
-  --secondary-foreground: oklch(0.28 0.04 255);
-  --muted: oklch(0.93 0.018 85);
-  --muted-foreground: oklch(0.5 0.03 255);
-  --accent: oklch(0.92 0.07 92);
-  --accent-foreground: oklch(0.32 0.06 60);
-  --destructive: oklch(0.55 0.21 25);
-  --border: oklch(0.82 0.02 255);
-  --input: oklch(0.8 0.022 255);
-  --ring: oklch(0.63 0.19 36);
-  --chart-1: oklch(0.63 0.19 36);
-  --chart-2: oklch(0.62 0.13 235);
-  --chart-3: oklch(0.8 0.15 88);
-  --chart-4: oklch(0.55 0.1 265);
-  --chart-5: oklch(0.7 0.08 60);
-  --sidebar: oklch(0.94 0.02 85);
-  --sidebar-foreground: oklch(0.3 0.035 255);
-  --sidebar-primary: oklch(0.63 0.19 36);
-  --sidebar-primary-foreground: oklch(0.99 0.01 85);
-  --sidebar-accent: oklch(0.9 0.05 88);
-  --sidebar-accent-foreground: oklch(0.24 0.035 255);
-  --sidebar-border: oklch(0.82 0.02 255);
-  --sidebar-ring: oklch(0.63 0.19 36);
+  --radius: 0.25rem;
+  --background: #f5f0e1;
+  --foreground: #17332d;
+  --card: #fdf9ee;
+  --card-foreground: #17332d;
+  --popover: #fdf9ee;
+  --popover-foreground: #17332d;
+  --primary: #1d5247;
+  --primary-foreground: #fdf6e3;
+  --secondary: #e9e2cd;
+  --secondary-foreground: #17332d;
+  --muted: #ece5d1;
+  --muted-foreground: #5b6e66;
+  --accent: #f6e7c6;
+  --accent-foreground: #17332d;
+  --destructive: #c8452f;
+  --border: #c9c0a6;
+  --input: #bdb498;
+  --ring: #e8875a;
+  --chart-1: #1d5247;
+  --chart-2: #e8875a;
+  --chart-3: #f2c14e;
+  --chart-4: #5fa3b0;
+  --chart-5: #c9a77a;
+  --sidebar: #1b4a42;
+  --sidebar-foreground: #e9efe3;
+  --sidebar-primary: #f2c14e;
+  --sidebar-primary-foreground: #17332d;
+  --sidebar-accent: #245a50;
+  --sidebar-accent-foreground: #fdf6e3;
+  --sidebar-border: #2d665b;
+  --sidebar-ring: #f2c14e;
 
-  /* arcade extras */
-  --px-yellow: oklch(0.82 0.16 88);
-  --px-ice: oklch(0.62 0.13 235);
-  --px-shadow-color: oklch(0.28 0.04 255);
-  --px-shadow: 3px 3px 0 var(--px-shadow-color);
-  --px-shadow-hover: 5px 5px 0 var(--primary);
-  --px-dot: oklch(0.24 0.035 255 / 9%);
+  /* pixel extras */
+  --px-yellow: #f2c14e;
+  --px-coral: #e8875a;
+  --px-ink: #17332d;
+  --px-tile-1: #f8e6cb;
+  --px-tile-2: #dfe9d8;
+  --px-tile-3: #f6dbcd;
+  --px-tile-4: #d8e7e4;
+  --px-shadow-color: #b9b29c;
+  --px-shadow: 4px 4px 0 var(--px-shadow-color);
+  --px-shadow-hover: 6px 6px 0 var(--px-coral);
+  --px-border: 2px solid var(--px-ink);
+  --px-dot: oklch(0.3 0.04 170 / 12%);
 
   /* fonts */
   --font-sans: var(--font-geist);
@@ -107,81 +113,86 @@ Used when no data-theme-preset is set or when 'default' is selected. */
 }
 
 .dark {
-  --background: oklch(0.17 0.028 255);
-  --foreground: oklch(0.95 0.015 85);
-  --card: oklch(0.205 0.03 255);
-  --card-foreground: oklch(0.95 0.015 85);
-  --popover: oklch(0.22 0.032 255);
-  --popover-foreground: oklch(0.95 0.015 85);
-  --primary: oklch(0.74 0.17 40);
-  --primary-foreground: oklch(0.17 0.028 255);
-  --secondary: oklch(0.25 0.032 255);
-  --secondary-foreground: oklch(0.93 0.015 85);
-  --muted: oklch(0.24 0.03 255);
-  --muted-foreground: oklch(0.72 0.03 245);
-  --accent: oklch(0.28 0.045 250);
-  --accent-foreground: oklch(0.9 0.13 90);
-  --destructive: oklch(0.68 0.2 25);
-  --border: oklch(0.33 0.035 255);
-  --input: oklch(0.36 0.035 255);
-  --ring: oklch(0.88 0.15 92);
-  --chart-1: oklch(0.74 0.17 40);
-  --chart-2: oklch(0.78 0.12 225);
-  --chart-3: oklch(0.88 0.15 92);
-  --chart-4: oklch(0.68 0.11 265);
-  --chart-5: oklch(0.8 0.07 60);
-  --sidebar: oklch(0.15 0.026 255);
-  --sidebar-foreground: oklch(0.85 0.02 85);
-  --sidebar-primary: oklch(0.74 0.17 40);
-  --sidebar-primary-foreground: oklch(0.17 0.028 255);
-  --sidebar-accent: oklch(0.24 0.04 252);
-  --sidebar-accent-foreground: oklch(0.96 0.02 85);
-  --sidebar-border: oklch(0.3 0.035 255);
-  --sidebar-ring: oklch(0.88 0.15 92);
+  --background: #0f2420;
+  --foreground: #efe9d6;
+  --card: #15302a;
+  --card-foreground: #efe9d6;
+  --popover: #173530;
+  --popover-foreground: #efe9d6;
+  --primary: #f2c14e;
+  --primary-foreground: #17332d;
+  --secondary: #1d3d36;
+  --secondary-foreground: #efe9d6;
+  --muted: #1b3832;
+  --muted-foreground: #9fb3aa;
+  --accent: #22463e;
+  --accent-foreground: #f8e6cb;
+  --destructive: #ef7a5e;
+  --border: #2e544b;
+  --input: #35604f;
+  --ring: #f2c14e;
+  --chart-1: #6cc1a8;
+  --chart-2: #e8875a;
+  --chart-3: #f2c14e;
+  --chart-4: #7fb8c4;
+  --chart-5: #d8b98c;
+  --sidebar: #0c1d1a;
+  --sidebar-foreground: #d7e2d7;
+  --sidebar-primary: #f2c14e;
+  --sidebar-primary-foreground: #17332d;
+  --sidebar-accent: #1b3a33;
+  --sidebar-accent-foreground: #fdf6e3;
+  --sidebar-border: #24443c;
+  --sidebar-ring: #f2c14e;
 
-  --px-yellow: oklch(0.88 0.15 92);
-  --px-ice: oklch(0.78 0.12 225);
-  --px-shadow-color: oklch(0.09 0.02 255);
-  --px-dot: oklch(0.95 0.015 85 / 5%);
+  --px-yellow: #f2c14e;
+  --px-coral: #e8875a;
+  --px-ink: #07130f;
+  --px-tile-1: #3a3222;
+  --px-tile-2: #1f3a2e;
+  --px-tile-3: #3d2a24;
+  --px-tile-4: #1d3a3c;
+  --px-shadow-color: #07130f;
+  --px-dot: oklch(0.95 0.02 90 / 6%);
 }
 
 /* Default theme: remap Tailwind's stock blue / green / violet scales used
-across pages to the arcade hues (ice, aqua, sand), so no page
-falls back to the generic green-and-purple look. Presets keep stock colors. */
+across pages to the lagoon hues (sky, mint, sand), so every page matches the
+palette without touching its markup. Presets keep the stock colors. */
 html[data-theme-preset="default"] {
-  --color-blue-50: oklch(0.97 0.014 232);
-  --color-blue-100: oklch(0.932 0.032 232);
-  --color-blue-200: oklch(0.882 0.059 232);
-  --color-blue-300: oklch(0.809 0.095 232);
-  --color-blue-400: oklch(0.707 0.13 232);
-  --color-blue-500: oklch(0.623 0.15 232);
-  --color-blue-600: oklch(0.546 0.15 232);
-  --color-blue-700: oklch(0.488 0.135 232);
-  --color-blue-800: oklch(0.424 0.11 232);
-  --color-blue-900: oklch(0.379 0.085 232);
-  --color-blue-950: oklch(0.282 0.06 232);
-  --color-sky-50: oklch(0.97 0.013 222);
-  --color-sky-100: oklch(0.932 0.03 222);
-  --color-sky-200: oklch(0.882 0.056 222);
-  --color-sky-300: oklch(0.809 0.09 222);
-  --color-sky-400: oklch(0.707 0.123 222);
-  --color-sky-500: oklch(0.623 0.142 222);
-  --color-sky-600: oklch(0.546 0.142 222);
-  --color-sky-700: oklch(0.488 0.128 222);
-  --color-sky-800: oklch(0.424 0.104 222);
-  --color-sky-900: oklch(0.379 0.081 222);
-  --color-sky-950: oklch(0.282 0.057 222);
-  --color-indigo-50: oklch(0.97 0.012 255);
-  --color-indigo-100: oklch(0.932 0.027 255);
-  --color-indigo-200: oklch(0.882 0.05 255);
-  --color-indigo-300: oklch(0.809 0.081 255);
-  --color-indigo-400: oklch(0.707 0.111 255);
-  --color-indigo-500: oklch(0.623 0.128 255);
-  --color-indigo-600: oklch(0.546 0.128 255);
-  --color-indigo-700: oklch(0.488 0.115 255);
-  --color-indigo-800: oklch(0.424 0.093 255);
-  --color-indigo-900: oklch(0.379 0.072 255);
-  --color-indigo-950: oklch(0.282 0.051 255);
+  --color-blue-50: oklch(0.97 0.011 220);
+  --color-blue-100: oklch(0.932 0.024 220);
+  --color-blue-200: oklch(0.882 0.044 220);
+  --color-blue-300: oklch(0.809 0.071 220);
+  --color-blue-400: oklch(0.707 0.098 220);
+  --color-blue-500: oklch(0.623 0.112 220);
+  --color-blue-600: oklch(0.546 0.112 220);
+  --color-blue-700: oklch(0.488 0.101 220);
+  --color-blue-800: oklch(0.424 0.083 220);
+  --color-blue-900: oklch(0.379 0.064 220);
+  --color-blue-950: oklch(0.282 0.045 220);
+  --color-sky-50: oklch(0.97 0.01 215);
+  --color-sky-100: oklch(0.932 0.022 215);
+  --color-sky-200: oklch(0.882 0.041 215);
+  --color-sky-300: oklch(0.809 0.066 215);
+  --color-sky-400: oklch(0.707 0.091 215);
+  --color-sky-500: oklch(0.623 0.105 215);
+  --color-sky-600: oklch(0.546 0.105 215);
+  --color-sky-700: oklch(0.488 0.095 215);
+  --color-sky-800: oklch(0.424 0.077 215);
+  --color-sky-900: oklch(0.379 0.059 215);
+  --color-sky-950: oklch(0.282 0.042 215);
+  --color-indigo-50: oklch(0.97 0.008 235);
+  --color-indigo-100: oklch(0.932 0.019 235);
+  --color-indigo-200: oklch(0.882 0.035 235);
+  --color-indigo-300: oklch(0.809 0.057 235);
+  --color-indigo-400: oklch(0.707 0.078 235);
+  --color-indigo-500: oklch(0.623 0.09 235);
+  --color-indigo-600: oklch(0.546 0.09 235);
+  --color-indigo-700: oklch(0.488 0.081 235);
+  --color-indigo-800: oklch(0.424 0.066 235);
+  --color-indigo-900: oklch(0.379 0.051 235);
+  --color-indigo-950: oklch(0.282 0.036 235);
   --color-violet-50: oklch(0.98 0.008 62);
   --color-violet-100: oklch(0.98 0.019 62);
   --color-violet-200: oklch(0.962 0.035 62);
@@ -204,56 +215,57 @@ html[data-theme-preset="default"] {
   --color-purple-800: oklch(0.504 0.061 55);
   --color-purple-900: oklch(0.459 0.047 55);
   --color-purple-950: oklch(0.362 0.033 55);
-  --color-fuchsia-50: oklch(0.97 0.011 350);
-  --color-fuchsia-100: oklch(0.932 0.026 350);
-  --color-fuchsia-200: oklch(0.882 0.047 350);
-  --color-fuchsia-300: oklch(0.809 0.076 350);
-  --color-fuchsia-400: oklch(0.707 0.104 350);
-  --color-fuchsia-500: oklch(0.623 0.12 350);
-  --color-fuchsia-600: oklch(0.546 0.12 350);
-  --color-fuchsia-700: oklch(0.488 0.108 350);
-  --color-fuchsia-800: oklch(0.424 0.088 350);
-  --color-fuchsia-900: oklch(0.379 0.068 350);
-  --color-fuchsia-950: oklch(0.282 0.048 350);
-  --color-emerald-50: oklch(0.97 0.012 188);
-  --color-emerald-100: oklch(0.932 0.027 188);
-  --color-emerald-200: oklch(0.882 0.05 188);
-  --color-emerald-300: oklch(0.809 0.081 188);
-  --color-emerald-400: oklch(0.707 0.111 188);
-  --color-emerald-500: oklch(0.623 0.128 188);
-  --color-emerald-600: oklch(0.546 0.128 188);
-  --color-emerald-700: oklch(0.488 0.115 188);
-  --color-emerald-800: oklch(0.424 0.093 188);
-  --color-emerald-900: oklch(0.379 0.072 188);
-  --color-emerald-950: oklch(0.282 0.051 188);
-  --color-green-50: oklch(0.97 0.012 185);
-  --color-green-100: oklch(0.932 0.027 185);
-  --color-green-200: oklch(0.882 0.05 185);
-  --color-green-300: oklch(0.809 0.081 185);
-  --color-green-400: oklch(0.707 0.111 185);
-  --color-green-500: oklch(0.623 0.128 185);
-  --color-green-600: oklch(0.546 0.128 185);
-  --color-green-700: oklch(0.488 0.115 185);
-  --color-green-800: oklch(0.424 0.093 185);
-  --color-green-900: oklch(0.379 0.072 185);
-  --color-green-950: oklch(0.282 0.051 185);
-  --color-teal-50: oklch(0.97 0.012 200);
-  --color-teal-100: oklch(0.932 0.027 200);
-  --color-teal-200: oklch(0.882 0.05 200);
-  --color-teal-300: oklch(0.809 0.081 200);
-  --color-teal-400: oklch(0.707 0.111 200);
-  --color-teal-500: oklch(0.623 0.128 200);
-  --color-teal-600: oklch(0.546 0.128 200);
-  --color-teal-700: oklch(0.488 0.115 200);
-  --color-teal-800: oklch(0.424 0.093 200);
-  --color-teal-900: oklch(0.379 0.072 200);
-  --color-teal-950: oklch(0.282 0.051 200);
+  --color-fuchsia-50: oklch(0.97 0.01 25);
+  --color-fuchsia-100: oklch(0.932 0.022 25);
+  --color-fuchsia-200: oklch(0.882 0.041 25);
+  --color-fuchsia-300: oklch(0.809 0.066 25);
+  --color-fuchsia-400: oklch(0.707 0.091 25);
+  --color-fuchsia-500: oklch(0.623 0.105 25);
+  --color-fuchsia-600: oklch(0.546 0.105 25);
+  --color-fuchsia-700: oklch(0.488 0.095 25);
+  --color-fuchsia-800: oklch(0.424 0.077 25);
+  --color-fuchsia-900: oklch(0.379 0.059 25);
+  --color-fuchsia-950: oklch(0.282 0.042 25);
+  --color-emerald-50: oklch(0.97 0.011 165);
+  --color-emerald-100: oklch(0.932 0.024 165);
+  --color-emerald-200: oklch(0.882 0.044 165);
+  --color-emerald-300: oklch(0.809 0.071 165);
+  --color-emerald-400: oklch(0.707 0.098 165);
+  --color-emerald-500: oklch(0.623 0.112 165);
+  --color-emerald-600: oklch(0.546 0.112 165);
+  --color-emerald-700: oklch(0.488 0.101 165);
+  --color-emerald-800: oklch(0.424 0.083 165);
+  --color-emerald-900: oklch(0.379 0.064 165);
+  --color-emerald-950: oklch(0.282 0.045 165);
+  --color-green-50: oklch(0.97 0.011 160);
+  --color-green-100: oklch(0.932 0.024 160);
+  --color-green-200: oklch(0.882 0.044 160);
+  --color-green-300: oklch(0.809 0.071 160);
+  --color-green-400: oklch(0.707 0.098 160);
+  --color-green-500: oklch(0.623 0.112 160);
+  --color-green-600: oklch(0.546 0.112 160);
+  --color-green-700: oklch(0.488 0.101 160);
+  --color-green-800: oklch(0.424 0.083 160);
+  --color-green-900: oklch(0.379 0.064 160);
+  --color-green-950: oklch(0.282 0.045 160);
+  --color-teal-50: oklch(0.97 0.01 180);
+  --color-teal-100: oklch(0.932 0.022 180);
+  --color-teal-200: oklch(0.882 0.041 180);
+  --color-teal-300: oklch(0.809 0.066 180);
+  --color-teal-400: oklch(0.707 0.091 180);
+  --color-teal-500: oklch(0.623 0.105 180);
+  --color-teal-600: oklch(0.546 0.105 180);
+  --color-teal-700: oklch(0.488 0.095 180);
+  --color-teal-800: oklch(0.424 0.077 180);
+  --color-teal-900: oklch(0.379 0.059 180);
+  --color-teal-950: oklch(0.282 0.042 180);
 }
 
 /* Presets keep their own look: no pixel shadows, no pixel display face. */
 :root[data-theme-preset]:not([data-theme-preset="default"]) {
   --px-shadow: none;
   --px-shadow-hover: none;
+  --px-border: 1px solid var(--border);
   --px-dot: transparent;
 }
 :root[data-theme-preset]:not([data-theme-preset="default"]) body {
@@ -313,7 +325,7 @@ html[data-theme-preset="default"] {
     height: 0.9em;
     margin-left: 0.25em;
     vertical-align: -0.08em;
-    background: var(--primary);
+    background: var(--px-coral, var(--primary));
     animation: px-blink 1.1s steps(1) infinite;
   }
 
@@ -321,21 +333,6 @@ html[data-theme-preset="default"] {
   [data-sidebar="group-label"] {
     font-family: var(--font-pixel), var(--font-sans), system-ui, sans-serif;
     letter-spacing: 0.02em;
-  }
-
-  /* Pixel cards: hard offset shadow; non-table cards light up on hover. */
-  [data-slot="card"] {
-    box-shadow: var(--px-shadow);
-    transition:
-      box-shadow 120ms steps(3),
-      transform 120ms steps(3);
-  }
-  [data-slot="card"] [data-slot="card"] {
-    box-shadow: none;
-  }
-  [data-slot="card"]:not(:has(table)):not(:has([data-slot="card"])):hover {
-    box-shadow: var(--px-shadow-hover);
-    transform: translate(-1px, -1px);
   }
 
   .px-rise {
@@ -510,4 +507,71 @@ html {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+}
+
+/* ---- Lagoon pixel skin (default theme only) --------------------------------
+   Unlayered on purpose: it must win over the ring/shadow utilities the shadcn
+   components carry. It only restyles (borders, shadows, faces, tints); no rule
+   here changes the size or position of anything beyond a 2px border. */
+html[data-theme-preset="default"] [data-slot="card"] {
+  border: var(--px-border);
+  box-shadow: var(--px-shadow);
+  transition:
+    box-shadow 120ms steps(3),
+    transform 120ms steps(3);
+}
+html[data-theme-preset="default"] [data-slot="card"] [data-slot="card"] {
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+html[data-theme-preset="default"] [data-slot="card"]:not(:has(table)):not(:has([data-slot="card"])):hover {
+  box-shadow: var(--px-shadow-hover);
+  transform: translate(-1px, -1px);
+}
+
+/* Pastel tiles for stat rows: add .px-tiles to the grid that holds them. */
+html[data-theme-preset="default"] .px-tiles > [data-slot="card"]:nth-child(4n + 1) {
+  background: var(--px-tile-1);
+}
+html[data-theme-preset="default"] .px-tiles > [data-slot="card"]:nth-child(4n + 2) {
+  background: var(--px-tile-2);
+}
+html[data-theme-preset="default"] .px-tiles > [data-slot="card"]:nth-child(4n + 3) {
+  background: var(--px-tile-3);
+}
+html[data-theme-preset="default"] .px-tiles > [data-slot="card"]:nth-child(4n + 4) {
+  background: var(--px-tile-4);
+}
+
+/* Sidebar reads like the lagoon top bar: pixel labels, sunny active marker. */
+html[data-theme-preset="default"] [data-sidebar="menu-button"] {
+  font-family: var(--font-pixel), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: 0.02em;
+}
+html[data-theme-preset="default"] [data-sidebar="group-label"] {
+  color: var(--px-yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.65rem;
+}
+
+/* Table headers as small monospace capitals. */
+html[data-theme-preset="default"] [data-slot="table-head"] {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+}
+
+/* Primary buttons cast a hard ink shadow, like the lagoon call-to-action. */
+html[data-theme-preset="default"] [data-slot="button"]:is([data-variant="default"], :not([data-variant])) {
+  box-shadow: 3px 3px 0 var(--px-ink);
+}
+html[data-theme-preset="default"] [data-slot="button"]:is([data-variant="default"], :not([data-variant])):active {
+  box-shadow: none;
+}
+
+/* Big numbers on stat tiles use the pixel face, like a scoreboard. */
+html[data-theme-preset="default"] .px-tiles > [data-slot="card"] :is(.text-2xl, .text-3xl) {
+  font-family: var(--font-pixel), var(--font-sans), system-ui, sans-serif;
 }

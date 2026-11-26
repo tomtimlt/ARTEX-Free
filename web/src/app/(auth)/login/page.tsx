@@ -94,14 +94,14 @@ export default function LoginPage() {
   return (
     <div className="flex h-dvh">
       {/* Left panel */}
-      <div className="relative hidden overflow-hidden bg-[oklch(0.17_0.028_255)] p-12 text-[oklch(0.95_0.015_85)] lg:flex lg:w-[42%] lg:flex-col lg:justify-between">
+      <div className="relative hidden overflow-hidden bg-[#1b4a42] p-12 text-[#fdf6e3] lg:flex lg:w-[42%] lg:flex-col lg:justify-between">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 [background-image:radial-gradient(oklch(0.95_0.015_85/9%)_1px,transparent_1px)] [background-size:14px_14px]"
+          className="pointer-events-none absolute inset-0 [background-image:radial-gradient(rgba(253,246,227,0.1)_1px,transparent_1px)] [background-size:14px_14px]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-40 [background-image:linear-gradient(to_right,oklch(0.74_0.17_40/35%)_1px,transparent_1px),linear-gradient(to_bottom,oklch(0.74_0.17_40/35%)_1px,transparent_1px)] [background-size:28px_28px] [mask-image:linear-gradient(to_top,black,transparent)] [transform:perspective(320px)_rotateX(55deg)] origin-bottom"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-40 [background-image:linear-gradient(to_right,rgba(242,193,78,0.35)_1px,transparent_1px),linear-gradient(to_bottom,rgba(242,193,78,0.35)_1px,transparent_1px)] [background-size:28px_28px] [mask-image:linear-gradient(to_top,black,transparent)] [transform:perspective(320px)_rotateX(55deg)] origin-bottom"
         />
         <div className="relative flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -113,7 +113,7 @@ export default function LoginPage() {
             ARTEX
             <span
               aria-hidden
-              className="ml-0.5 inline-block h-[0.85em] w-[0.45em] translate-y-[0.1em] animate-[px-blink_1.1s_steps(1)_infinite] bg-[oklch(0.74_0.17_40)]"
+              className="ml-0.5 inline-block h-[0.85em] w-[0.45em] translate-y-[0.1em] animate-[px-blink_1.1s_steps(1)_infinite] bg-[#e8875a]"
             />
           </span>
         </div>
@@ -125,13 +125,13 @@ export default function LoginPage() {
             {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
               <span
                 key={i}
-                className="size-3 animate-pulse bg-[oklch(0.74_0.17_40)]"
+                className="size-3 animate-pulse bg-[#e8875a]"
                 style={{ animationDelay: `${i * 120}ms`, opacity: 1 - i * 0.1 }}
               />
             ))}
           </div>
         </div>
-        <p className="relative font-(family-name:--font-pixel) text-[oklch(0.88_0.15_92)] text-xs tracking-wide">
+        <p className="relative font-(family-name:--font-pixel) text-[#f2c14e] text-xs tracking-wide">
           {t("Use only on systems you are authorized to test.")}
         </p>
       </div>

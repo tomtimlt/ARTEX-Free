@@ -508,7 +508,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Row 1: 5 stat cards ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="px-tiles grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {/* Active tasks */}
         <Card className="gap-1">
           <CardHeader className="pb-0">

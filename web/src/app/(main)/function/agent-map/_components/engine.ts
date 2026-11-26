@@ -108,13 +108,13 @@ const STATIONS: Record<Zone, Station[]> = {
 const TROPHY_SPOT = { x: 205, y: 184 };
 
 const C = {
-  void: "#0b0f19",
-  corridor: "#121827",
-  corridorLine: "#1f2840",
-  wall: "#232c44",
-  wallTop: "#3a4668",
-  outline: "#2f3a58",
-  ink: "#141a2b",
+  void: "#0a1a17",
+  corridor: "#10261f",
+  corridorLine: "#1d3d35",
+  wall: "#1f3b35",
+  wallTop: "#356458",
+  outline: "#2b5248",
+  ink: "#17332d",
   metal: "#2a3350",
   metalHi: "#3d4a70",
   screen: "#0e1a2e",
@@ -129,12 +129,12 @@ const C = {
 };
 
 const FLOORS: Record<RoomId, [string, string]> = {
-  network: ["#16203a", "#182440"],
-  hq: ["#1d1f33", "#20233a"],
-  web: ["#221a2a", "#261d2f"],
-  archive: ["#1f1b1f", "#231e22"],
-  lounge: ["#1c2030", "#1f2436"],
-  exploit: ["#24161d", "#291920"],
+  network: ["#14302c", "#17352f"],
+  hq: ["#1c3a33", "#1f3f37"],
+  web: ["#2a2a22", "#2e2e25"],
+  archive: ["#2b2620", "#2f2a23"],
+  lounge: ["#1a3531", "#1d3935"],
+  exploit: ["#33221f", "#382521"],
 };
 
 interface Bubble {
@@ -1094,7 +1094,7 @@ export class AgentMapEngine {
     const slide = k < 0.12 ? Math.round((1 - k / 0.12) * 20) : 0;
     const y = 104 - slide;
     this.rect(x - 2, y - 2, w + 4, 24, "#05070d");
-    this.rect(x, y, w, 20, "#141a2b");
+    this.rect(x, y, w, 20, "#17332d");
     this.rect(x, y, w, 2, b.color);
     this.rect(x, y + 18, w, 2, b.color);
     this.text(b.text, LW / 2, y + 4, b.color, 14, "center");

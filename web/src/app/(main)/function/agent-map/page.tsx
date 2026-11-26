@@ -312,7 +312,7 @@ export default function AgentMapPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="px-tiles grid grid-cols-2 gap-3 md:grid-cols-4">
         <HudTile label={t("Tool calls")} value={stats.tools} />
         <HudTile label={t("Findings")} value={stats.findingTotal}>
           <div className="flex gap-0.5">
@@ -335,7 +335,7 @@ export default function AgentMapPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
           <Card className="gap-0 overflow-hidden py-0">
-            <div ref={wrapRef} className="relative w-full bg-[#0b0f19]" style={{ aspectRatio: `${LW} / ${LH}` }}>
+            <div ref={wrapRef} className="relative w-full bg-[#0a1a17]" style={{ aspectRatio: `${LW} / ${LH}` }}>
               <canvas
                 ref={canvasRef}
                 role="img"
@@ -343,7 +343,7 @@ export default function AgentMapPage() {
                 className="absolute inset-0 block size-full [image-rendering:pixelated]"
               />
               {(loading || empty || !tasks.length) && (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#0b0f19]/70 p-6 text-center">
+                <div className="absolute inset-0 flex items-center justify-center bg-[#0a1a17]/70 p-6 text-center">
                   <p className="font-(family-name:--font-pixel) max-w-sm text-[#f4f1de] text-sm">
                     {loading
                       ? t("Loading the map...")
