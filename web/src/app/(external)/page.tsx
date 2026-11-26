@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 
-import { t } from "@/i18n";
+import { MOCK } from "@/lib/mock/enabled";
 
 export default function Home() {
-  redirect("/function/tasks");
-  return <>{t("Coming Soon")}</>;
+  redirect(MOCK ? "/station-corail.html" : "/function/tasks");
 }
