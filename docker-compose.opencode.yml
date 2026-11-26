@@ -29,8 +29,9 @@ services:
     command: ["node", "/bridge/opencode-entry.mjs"]
     environment:
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?Please set OPENCODE_SERVER_PASSWORD in .env}
-      # Your OpenCode Zen API key (opencode.ai > Zen > API keys). Empty = use a login
-      # made with `opencode auth login` inside the container instead.
+      # Your OpenCode Zen API key. Empty = use an account login made inside the
+      # container with `opencode console login` (needed when the key is a "Legacy"
+      # one, which Zen refuses for free models). See scripts/opencode-bridge/README.md.
       OPENCODE_ZEN_API_KEY: ${OPENCODE_ZEN_API_KEY:-}
     volumes:
       - opencode-data:/home/node/.local/share/opencode

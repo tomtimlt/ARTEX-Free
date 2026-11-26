@@ -37,8 +37,21 @@ COMPOSE_FILE=docker-compose.yml;docker-compose.windows.yml;docker-compose.openco
 2. From the project root: `docker compose up -d --build`, then
    `docker compose ps` should list `opencode` and `opencode-bridge` as running.
 
-3. No key? Leave `OPENCODE_ZEN_API_KEY` empty and log in once instead:
-   `docker compose run --rm -it opencode opencode auth login`.
+3. Which credential? Zen serves its free models to an OpenCode **account login**.
+   Older Zen API keys show up as "Legacy" in the Zen usage page and get
+   `429 RateLimit.Free` on free models, even through OpenCode. If yours is one of
+   them, leave `OPENCODE_ZEN_API_KEY` empty and log the container in to your
+   account once (device code: it prints a link and a code to enter in your browser):
+
+```
+docker compose exec -it opencode opencode console login
+docker compose exec opencode rm -f /home/node/.local/share/opencode/auth.json
+docker compose restart opencode opencode-bridge
+```
+
+   The login is kept in the `opencode-data` volume (OpenCode's database). Removing
+   `auth.json` makes sure no stored API key takes precedence over the account.
+   Restarting the bridge also clears the cooldowns it keeps for refused models.
 
 4. ARTEX → System → LLM → Create:
 
