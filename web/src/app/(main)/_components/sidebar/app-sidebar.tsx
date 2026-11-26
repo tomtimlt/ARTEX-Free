@@ -47,7 +47,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <source srcSet="/logo.webp" type="image/webp" />
                   <img src="/logo.png" alt="ARTEX" width={40} height={40} className="shrink-0" />
                 </picture>
-                <span className="font-semibold text-base">{APP_CONFIG.name}</span>
+                <span className="font-(family-name:--font-pixel) text-lg tracking-wider">
+                  {APP_CONFIG.name}
+                  <span
+                    aria-hidden
+                    className="ml-0.5 inline-block h-[0.85em] w-[0.45em] translate-y-[0.1em] animate-[px-blink_1.1s_steps(1)_infinite] bg-sidebar-primary"
+                  />
+                </span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

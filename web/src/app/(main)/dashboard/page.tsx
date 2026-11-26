@@ -47,9 +47,9 @@ import { useActiveCompany } from "@/stores/company/company-store";
 // ── chart constants ───────────────────────────────────────────────────────────
 
 const dailyTrendConfig = {
-  input: { label: t("Input"), color: "hsl(217 91% 60%)" },
-  output: { label: t("Output"), color: "hsl(263 70% 60%)" },
-  cacheRead: { label: t("Cache read"), color: "hsl(160 60% 45%)" },
+  input: { label: t("Input"), color: "var(--chart-2)" },
+  output: { label: t("Output"), color: "var(--chart-1)" },
+  cacheRead: { label: t("Cache read"), color: "var(--chart-3)" },
 } satisfies ChartConfig;
 
 // ── helpers ──────────────────────────────────────────────────────────────────

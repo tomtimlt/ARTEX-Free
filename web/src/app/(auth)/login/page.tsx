@@ -94,18 +94,14 @@ export default function LoginPage() {
   return (
     <div className="flex h-dvh">
       {/* Left panel */}
-      <div className="relative hidden overflow-hidden bg-[oklch(0.16_0.03_275)] p-12 text-white lg:flex lg:w-[42%] lg:flex-col lg:justify-between">
+      <div className="relative hidden overflow-hidden bg-[oklch(0.17_0.028_255)] p-12 text-[oklch(0.95_0.015_85)] lg:flex lg:w-[42%] lg:flex-col lg:justify-between">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(to_right,white_1px,transparent_1px),linear-gradient(to_bottom,white_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]"
+          className="pointer-events-none absolute inset-0 [background-image:radial-gradient(oklch(0.95_0.015_85/9%)_1px,transparent_1px)] [background-size:14px_14px]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-40 -left-32 size-[520px] rounded-full bg-[oklch(0.55_0.24_280)] opacity-40 blur-[120px]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-24 -bottom-40 size-[420px] rounded-full bg-[oklch(0.65_0.16_200)] opacity-25 blur-[120px]"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-40 [background-image:linear-gradient(to_right,oklch(0.74_0.17_40/35%)_1px,transparent_1px),linear-gradient(to_bottom,oklch(0.74_0.17_40/35%)_1px,transparent_1px)] [background-size:28px_28px] [mask-image:linear-gradient(to_top,black,transparent)] [transform:perspective(320px)_rotateX(55deg)] origin-bottom"
         />
         <div className="relative flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -113,22 +109,38 @@ export default function LoginPage() {
             <source srcSet="/logo.webp" type="image/webp" />
             <img src="/logo.png" alt="" width={40} height={40} className="brightness-0 invert" />
           </picture>
-          <span className="font-semibold text-lg tracking-tight">ARTEX</span>
+          <span className="font-(family-name:--font-pixel) text-xl tracking-wider">
+            ARTEX
+            <span
+              aria-hidden
+              className="ml-0.5 inline-block h-[0.85em] w-[0.45em] translate-y-[0.1em] animate-[px-blink_1.1s_steps(1)_infinite] bg-[oklch(0.74_0.17_40)]"
+            />
+          </span>
         </div>
-        <div className="relative space-y-5">
-          <h1 className="max-w-md font-semibold text-4xl leading-tight tracking-tight">
+        <div className="relative space-y-6">
+          <h1 className="max-w-md font-(family-name:--font-pixel) text-4xl leading-tight">
             {t("Autonomous offensive security, under your control")}
           </h1>
-          <div className="h-px w-16 bg-gradient-to-r from-[oklch(0.75_0.18_280)] to-transparent" />
+          <div aria-hidden className="flex gap-1.5">
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <span
+                key={i}
+                className="size-3 animate-pulse bg-[oklch(0.74_0.17_40)]"
+                style={{ animationDelay: `${i * 120}ms`, opacity: 1 - i * 0.1 }}
+              />
+            ))}
+          </div>
         </div>
-        <p className="relative text-sm text-white/55">{t("Use only on systems you are authorized to test.")}</p>
+        <p className="relative font-(family-name:--font-pixel) text-[oklch(0.88_0.15_92)] text-xs tracking-wide">
+          {t("Use only on systems you are authorized to test.")}
+        </p>
       </div>
 
       {/* Right panel */}
       <div className="flex w-full items-center justify-center bg-background p-8 lg:w-[58%]">
         <div className="w-full max-w-sm space-y-8 py-24 lg:py-32">
           <div className="space-y-2">
-            <h2 className="font-semibold text-3xl tracking-tight">{t("Sign in")}</h2>
+            <h2 className="font-(family-name:--font-pixel) text-3xl">{t("Sign in")}</h2>
             <p className="text-muted-foreground">
               {t("Welcome back — enter your password to continue using ARTEX")}
             </p>

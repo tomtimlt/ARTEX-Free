@@ -122,7 +122,10 @@ export function MainContent({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             {version && (
-              <span className="font-medium text-muted-foreground text-xs tabular-nums">{t("Version · {version}", { version })}</span>
+              <span className="flex items-center gap-1.5 font-(family-name:--font-pixel) text-muted-foreground text-xs tabular-nums">
+                <span aria-hidden className="size-1.5 animate-pulse bg-(--px-yellow)" />
+                {t("Version · {version}", { version })}
+              </span>
             )}
             <LayoutControls />
             <ThemeSwitcher />
@@ -130,7 +133,10 @@ export function MainContent({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 has-data-[content-padding=false]:p-0 md:p-6 md:has-data-[content-padding=false]:p-0">
+      <div
+        key={pathname}
+        className="px-rise min-h-0 min-w-0 flex-1 overflow-x-hidden p-4 has-data-[content-padding=false]:p-0 md:p-6 md:has-data-[content-padding=false]:p-0"
+      >
         {children}
       </div>
     </>

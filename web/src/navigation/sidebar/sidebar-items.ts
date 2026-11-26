@@ -8,6 +8,7 @@ import {
   ClipboardList,
   FolderOpen,
   FolderSync,
+  Gamepad2,
   LayoutDashboard,
   type LucideIcon,
   MessageSquare,
@@ -70,6 +71,7 @@ export const sidebarItems: NavGroup[] = [
     items: [
       { id: "dashboard", title: t("Dashboard"), url: "/dashboard", icon: LayoutDashboard },
       { id: "chat", title: t("Chat"), url: "/chat", icon: MessageSquare },
+      { id: "agent-map", title: t("Agent Map"), url: "/function/agent-map", icon: Gamepad2, badge: "new" },
       { id: "tasks", title: t("Tasks"), url: "/function/tasks", icon: Target },
       { id: "findings", title: t("Findings"), url: "/function/findings", icon: Bug },
       { id: "traffic", title: t("Traffic"), url: "/function/traffic", icon: Activity },
