@@ -297,8 +297,11 @@ async function readUpstream(res, what) {
     }
     if (res.status === 401 || res.status === 403) throw new HttpError(401, 'OpenCode rejected the bridge credentials (check OPENCODE_PASSWORD)');
     if (res.status === 404) throw new HttpError(404, `OpenCode endpoint not found (${what})`);
-    if (res.status === 400 || res.status === 422) throw new HttpError(400, `OpenCode rejected the request (${what}, ${res.status})`);
-    throw new HttpError(502, `OpenCode error ${res.status} (${what})`);
+    // A model call that fails (e.g. Zen "inference_failed" on one model) must not
+    // stop the rotation: mark it so the caller parks that model and tries the next.
+    const modelCall = what === 'message' || what === 'generate text';
+    if (res.status === 400 || res.status === 422) throw new HttpError(400, `OpenCode rejected the request (${what}, ${res.status}): ${text.slice(0, 200)}`, { skip: modelCall });
+    throw new HttpError(502, `OpenCode error ${res.status} (${what}): ${text.slice(0, 200)}`, { skip: modelCall });
   }
   try {
     return JSON.parse(text);

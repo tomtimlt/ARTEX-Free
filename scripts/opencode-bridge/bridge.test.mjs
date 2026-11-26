@@ -168,6 +168,14 @@ test('desktop app without session API falls back to generate/text', async () => 
   assert.equal(k.model, 'opencode/big-pickle');
 });
 
+test('a model failing with 400 inference_failed is skipped, next model answers', async () => {
+  desktop = true;
+  script = [{ status: 400, body: { error: { type: 'inference_failed' } } }, { text: '{"type":"final","content":"next"}' }];
+  const r = await post(req()); const j = await r.json();
+  assert.equal(r.status, 200);
+  assert.equal(j.model, 'opencode/big-pickle');
+});
+
 test('other model error -> 502', async () => {
   script = [{ error: { name: 'APIError', data: { message: 'context length exceeded' } } }];
   assert.equal((await post(req())).status, 502);
@@ -175,7 +183,8 @@ test('other model error -> 502', async () => {
 
 test('upstream 401 -> 401, 5xx -> 502', async () => {
   script = [{ status: 401 }]; assert.equal((await post(req())).status, 401);
-  script = [{ status: 500 }]; assert.equal((await post(req())).status, 502);
+  // 5xx on every model: each is skipped, the request ends with 402 (all parked)
+  script = [{ status: 500 }, { status: 500 }]; assert.equal((await post(req())).status, 402);
 });
 
 test('no tools -> final only; unknown route 404', async () => {
