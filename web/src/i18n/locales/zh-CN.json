@@ -2724,5 +2724,7 @@
   "Search company…": "搜索企业…",
   "Failed to load companies": "加载企业失败",
   "No company found": "未找到企业",
-  "Manage companies": "管理企业"
+  "Manage companies": "管理企业",
+  "Autonomous offensive security, under your control": "自主进攻性安全，尽在掌控",
+  "Use only on systems you are authorized to test.": "仅可用于你已获授权测试的系统。"
 }

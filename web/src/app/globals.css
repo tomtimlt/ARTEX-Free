@@ -53,79 +53,85 @@
   --font-sans: var(--font-sans);
 }
 
-/* Default theme styles (used when no data-theme-preset is set or when 'default' is selected).
-These serve as the fallback; there is no separate default.css file. */
+/* Default theme: "ARTEX Midnight". Cool, slightly blue-tinted neutrals with an
+electric indigo-violet accent (matching the logo). Used when no data-theme-preset
+is set or when 'default' is selected; there is no separate default.css file. */
 :root {
-  --radius: 0.625rem;
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.003 270);
+  --foreground: oklch(0.2 0.02 270);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.2 0.02 270);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.2 0.02 270);
+  --primary: oklch(0.53 0.22 275);
+  --primary-foreground: oklch(0.985 0.005 275);
+  --secondary: oklch(0.955 0.008 270);
+  --secondary-foreground: oklch(0.27 0.03 270);
+  --muted: oklch(0.96 0.006 270);
+  --muted-foreground: oklch(0.52 0.025 270);
+  --accent: oklch(0.95 0.025 275);
+  --accent-foreground: oklch(0.38 0.16 275);
+  --destructive: oklch(0.58 0.22 22);
+  --border: oklch(0.915 0.008 270);
+  --input: oklch(0.9 0.01 270);
+  --ring: oklch(0.6 0.18 275);
+  --chart-1: oklch(0.58 0.2 275);
+  --chart-2: oklch(0.7 0.14 195);
+  --chart-3: oklch(0.72 0.17 150);
+  --chart-4: oklch(0.78 0.15 75);
+  --chart-5: oklch(0.65 0.21 15);
+  --sidebar: oklch(0.975 0.005 270);
+  --sidebar-foreground: oklch(0.3 0.025 270);
+  --sidebar-primary: oklch(0.53 0.22 275);
+  --sidebar-primary-foreground: oklch(0.985 0.005 275);
+  --sidebar-accent: oklch(0.94 0.02 275);
+  --sidebar-accent-foreground: oklch(0.25 0.06 275);
+  --sidebar-border: oklch(0.915 0.008 270);
+  --sidebar-ring: oklch(0.6 0.18 275);
+
+  /* surface glow behind the app (subtle in light mode) */
+  --app-glow: oklch(0.53 0.22 275 / 6%);
 
   /* fonts */
   --font-sans: var(--font-geist);
   --font-mono: var(--font-geist-mono);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.155 0.018 272);
+  --foreground: oklch(0.96 0.006 270);
+  --card: oklch(0.195 0.02 272);
+  --card-foreground: oklch(0.96 0.006 270);
+  --popover: oklch(0.205 0.022 272);
+  --popover-foreground: oklch(0.96 0.006 270);
+  --primary: oklch(0.68 0.19 278);
+  --primary-foreground: oklch(0.16 0.03 275);
+  --secondary: oklch(0.24 0.022 272);
+  --secondary-foreground: oklch(0.94 0.008 270);
+  --muted: oklch(0.235 0.02 272);
+  --muted-foreground: oklch(0.7 0.02 270);
+  --accent: oklch(0.27 0.05 276);
+  --accent-foreground: oklch(0.9 0.06 278);
+  --destructive: oklch(0.68 0.2 22);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.68 0.19 278);
+  --chart-1: oklch(0.68 0.19 278);
+  --chart-2: oklch(0.76 0.13 195);
+  --chart-3: oklch(0.76 0.16 150);
+  --chart-4: oklch(0.82 0.14 80);
+  --chart-5: oklch(0.7 0.19 15);
+  --sidebar: oklch(0.175 0.02 272);
+  --sidebar-foreground: oklch(0.82 0.015 270);
+  --sidebar-primary: oklch(0.68 0.19 278);
+  --sidebar-primary-foreground: oklch(0.16 0.03 275);
+  --sidebar-accent: oklch(0.25 0.035 275);
+  --sidebar-accent-foreground: oklch(0.97 0.01 275);
+  --sidebar-border: oklch(1 0 0 / 7%);
+  --sidebar-ring: oklch(0.68 0.19 278);
+
+  --app-glow: oklch(0.6 0.2 278 / 14%);
 }
 
 @layer base {
@@ -136,6 +142,30 @@ These serve as the fallback; there is no separate default.css file. */
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans), system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Default theme only: a soft accent glow at the top of the app, so the
+     surface reads as layered instead of flat. Presets keep their own look. */
+  html:not([data-theme-preset]) body,
+  html[data-theme-preset="default"] body {
+    background-image: radial-gradient(1200px 600px at 70% -10%, var(--app-glow), transparent 70%);
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 28%, transparent);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent) transparent;
   }
   html {
     @apply font-sans;

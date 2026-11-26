@@ -2724,5 +2724,7 @@
   "Search company…": "Şirket ara…",
   "Failed to load companies": "Şirketler yüklenemedi",
   "No company found": "Şirket bulunamadı",
-  "Manage companies": "Şirketleri yönet"
+  "Manage companies": "Şirketleri yönet",
+  "Autonomous offensive security, under your control": "Kontrolünüzde otonom ofansif güvenlik",
+  "Use only on systems you are authorized to test.": "Yalnızca test etme yetkiniz olan sistemlerde kullanın."
 }

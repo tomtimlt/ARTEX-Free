@@ -94,25 +94,42 @@ export default function LoginPage() {
   return (
     <div className="flex h-dvh">
       {/* Left panel */}
-      <div className="hidden flex-col items-center justify-center bg-primary p-12 text-center lg:flex lg:w-1/3">
-        <div className="relative flex items-center justify-center">
-          <div className="absolute size-80 rounded-full border border-primary-foreground/10" />
-          <div className="absolute size-60 rounded-full border border-primary-foreground/15" />
-          <div className="absolute size-40 rounded-full border border-primary-foreground/20" />
+      <div className="relative hidden overflow-hidden bg-[oklch(0.16_0.03_275)] p-12 text-white lg:flex lg:w-[42%] lg:flex-col lg:justify-between">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:linear-gradient(to_right,white_1px,transparent_1px),linear-gradient(to_bottom,white_1px,transparent_1px)] [background-size:44px_44px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-40 -left-32 size-[520px] rounded-full bg-[oklch(0.55_0.24_280)] opacity-40 blur-[120px]"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -bottom-40 size-[420px] rounded-full bg-[oklch(0.65_0.16_200)] opacity-25 blur-[120px]"
+        />
+        <div className="relative flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <picture className="contents">
             <source srcSet="/logo.webp" type="image/webp" />
-            <img src="/logo.png" alt="ARTEX" width={160} height={160} className="relative brightness-0 invert" />
+            <img src="/logo.png" alt="" width={40} height={40} className="brightness-0 invert" />
           </picture>
+          <span className="font-semibold text-lg tracking-tight">ARTEX</span>
         </div>
+        <div className="relative space-y-5">
+          <h1 className="max-w-md font-semibold text-4xl leading-tight tracking-tight">
+            {t("Autonomous offensive security, under your control")}
+          </h1>
+          <div className="h-px w-16 bg-gradient-to-r from-[oklch(0.75_0.18_280)] to-transparent" />
+        </div>
+        <p className="relative text-sm text-white/55">{t("Use only on systems you are authorized to test.")}</p>
       </div>
 
       {/* Right panel */}
-      <div className="flex w-full items-center justify-center bg-background p-8 lg:w-2/3">
-        <div className="w-full max-w-md space-y-10 py-24 lg:py-32">
-          <div className="space-y-4 text-center">
-            <h2 className="text-2xl font-medium tracking-tight">{t("Sign in")}</h2>
-            <p className="mx-auto max-w-xl text-muted-foreground">
+      <div className="flex w-full items-center justify-center bg-background p-8 lg:w-[58%]">
+        <div className="w-full max-w-sm space-y-8 py-24 lg:py-32">
+          <div className="space-y-2">
+            <h2 className="font-semibold text-3xl tracking-tight">{t("Sign in")}</h2>
+            <p className="text-muted-foreground">
               {t("Welcome back — enter your password to continue using ARTEX")}
             </p>
           </div>
@@ -153,7 +170,7 @@ export default function LoginPage() {
               </Label>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading || !password || !agreed}>
+            <Button type="submit" size="lg" className="mt-2 w-full" disabled={loading || !password || !agreed}>
               {loading ? t("Signing in...") : t("Sign in")}
             </Button>
           </form>
