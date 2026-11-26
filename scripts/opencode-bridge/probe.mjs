@@ -37,3 +37,51 @@ for (const [path, ops] of Object.entries(doc.paths)) {
     if (schema?.properties) console.log(`    body: ${Object.keys(schema.properties).join(', ')}  required: ${(schema.required || []).join(', ')}`);
   }
 }
+
+// Detailed request/response shapes for the routes the bridge needs.
+const want = [
+  ['post', '/api/session'],
+  ['post', '/api/session/{sessionID}/model'],
+  ['post', '/api/session/{sessionID}/agent'],
+  ['post', '/api/session/{sessionID}/prompt'],
+  ['post', '/api/session/{sessionID}/generate'],
+  ['post', '/api/experimental/session/{sessionID}/wait'],
+  ['get', '/api/session/{sessionID}/message'],
+  ['get', '/api/session/{sessionID}/permission'],
+  ['post', '/api/session/{sessionID}/permission/{requestID}/reply'],
+  ['post', '/api/session/{sessionID}/interrupt'],
+  ['get', '/api/session/active'],
+];
+const seenRefs = new Set();
+function shape(x, depth = 0) {
+  if (!x || depth > 4) return '…';
+  if (x.$ref) {
+    const n = refName(x);
+    if (seenRefs.has(n) && depth > 0) return n;
+    seenRefs.add(n);
+    return `${n}=${shape(resolve(x), depth + 1)}`;
+  }
+  if (x.enum) return `enum(${x.enum.join('|')})`;
+  if (x.const !== undefined) return JSON.stringify(x.const);
+  for (const k of ['anyOf', 'oneOf', 'allOf']) if (x[k]) return `${k}[${x[k].map((y) => shape(y, depth + 1)).join(' ; ')}]`;
+  if (x.type === 'array') return `[${shape(x.items, depth + 1)}]`;
+  if (x.properties) {
+    const req = new Set(x.required || []);
+    return `{${Object.entries(x.properties).map(([k, v]) => `${k}${req.has(k) ? '' : '?'}:${shape(v, depth + 1)}`).join(', ')}}`;
+  }
+  return x.type || '?';
+}
+console.log('\n--- details ---');
+for (const [m, p] of want) {
+  const op = doc.paths[p]?.[m];
+  if (!op) { console.log(`${m.toUpperCase()} ${p}: absent`); continue; }
+  seenRefs.clear();
+  const body = op.requestBody?.content?.['application/json']?.schema;
+  const okResp = op.responses?.['200'] ?? op.responses?.['201'] ?? op.responses?.['204'];
+  const out = okResp?.content?.['application/json']?.schema;
+  console.log(`\n${m.toUpperCase()} ${p}${op.summary ? '  — ' + op.summary : ''}`);
+  if (op.parameters?.length) console.log(`  params: ${op.parameters.map((x) => `${x.name}(${x.in})`).join(', ')}`);
+  if (body) console.log(`  body: ${shape(body).slice(0, 1500)}`);
+  if (out) console.log(`  200: ${shape(out).slice(0, 1500)}`);
+  else if (okResp) console.log(`  ${Object.keys(op.responses).join(',')}: ${okResp.description ?? ''}`);
+}
