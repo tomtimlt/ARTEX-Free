@@ -30,8 +30,8 @@ export const CFG = {
   maxUpstreamRetries: Number(env.BRIDGE_MAX_UPSTREAM_RETRIES || 2),
   unavailableCooldownMs: Number(env.BRIDGE_UNAVAILABLE_COOLDOWN_MS || 2 * 60 * 1000),
   agent: env.BRIDGE_AGENT || '',
-  // session = OpenCode session API (npm builds); generate = /api/experimental/generate/text
-  // (desktop app 2.x); auto = try session, fall back to generate on 404/405.
+  // session = OpenCode 1.x session API; v2 = OpenCode 2.x /api/session (desktop app);
+  // generate = /api/experimental/generate/text; auto = detect in that order.
   api: (env.BRIDGE_API || 'auto').toLowerCase(),
 };
 
@@ -135,7 +135,7 @@ export function setCooldown(m, ms) {
   const v = Number.isFinite(ms) && ms > 0 ? ms : CFG.quotaCooldownMs;
   cooldown.set(m, Date.now() + Math.min(CFG.maxCooldownMs, Math.max(1000, v)));
 }
-export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; detectedApi = null; accountPauseUntil = 0; rateLimitStreak = 0; }
+export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; detectedApi = null; v2Mode = null; denyRulesetAccepted = true; accountPauseUntil = 0; rateLimitStreak = 0; }
 
 function parseRetryAfterMs(res, bodyText) {
   const h = res.headers.get('retry-after');
@@ -407,22 +407,182 @@ async function generateViaText(model, prompt, signal) {
   }
 }
 
+// ---------------------------------------------------------- OpenCode 2.x
+// The desktop app 2.x serves its session API under /api/session. Two ways to
+// get text out of it, tried in this order:
+//   generate: POST /api/session/{id}/generate — text from the session context,
+//             no agent loop, so no tool can ever run;
+//   prompt:   POST /api/session/{id}/prompt — a regular agent turn (what the
+//             OpenCode clients and RedWidow do). Every permission the agent
+//             asks for (shell, files, web…) is rejected while the turn runs.
+// The session is created with a deny-all permission ruleset and deleted after.
+const DENY_ALL = [{ permission: '*', pattern: '*', action: 'deny' }];
+let v2Mode = null; // 'generate' | 'prompt' once one of them has answered
+let denyRulesetAccepted = true;
+
+async function v2Json(path, init, what, signal) {
+  let res;
+  try {
+    res = await upstreamFetch(path, { ...init, signal });
+  } catch (e) {
+    if (signal?.aborted && signal.reason instanceof HttpError) throw signal.reason;
+    throw new HttpError(502, `OpenCode unreachable: ${e.message}`);
+  }
+  if (res.status === 204) return null;
+  return readUpstream(res, what);
+}
+
+// Finds the assistant's reply text (and any error) in a 2.x messages page
+// without depending on the exact union of message shapes.
+export function v2ReplyFrom(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const isAssistant = (m) => /assistant/i.test(`${m?.type ?? ''} ${m?.role ?? ''} ${m?.info?.role ?? ''}`);
+  const texts = [];
+  let error = null;
+  const walk = (node, depth) => {
+    if (!node || depth > 8) return;
+    if (Array.isArray(node)) { for (const n of node) walk(n, depth + 1); return; }
+    if (typeof node !== 'object') return;
+    if (node.error && !error) {
+      const e = node.error;
+      error = typeof e === 'string' ? e : `${e.name ?? e._tag ?? ''} ${e.data?.message ?? e.message ?? e.reason ?? ''}`.trim();
+    }
+    if ((node.type === 'text' || node.type === 'output_text') && typeof node.text === 'string') texts.push(node.text);
+    for (const [k, v] of Object.entries(node)) if (k !== 'error' && typeof v === 'object') walk(v, depth + 1);
+  };
+  const assistants = list.filter(isAssistant);
+  const last = assistants.length ? assistants[assistants.length - 1] : null;
+  if (last) {
+    walk(last, 0);
+    if (!texts.length && typeof last.text === 'string') texts.push(last.text);
+    if (!texts.length && typeof last.payload?.text === 'string') texts.push(last.payload.text);
+  }
+  return { text: texts.join(''), error, found: !!last, keys: last ? Object.keys(last).join(',') : '' };
+}
+
+async function v2CreateSession(model, signal) {
+  const body = { title: 'artex-bridge', model: { id: model, providerID: CFG.providerID } };
+  if (denyRulesetAccepted) body.permissions = DENY_ALL;
+  try {
+    return await v2Json('/api/session', { method: 'POST', body }, 'create session', signal);
+  } catch (e) {
+    if (e.status === 400 && denyRulesetAccepted) {
+      // Unknown ruleset shape on this version: keep the per-request rejection.
+      denyRulesetAccepted = false;
+      log('OpenCode refused the deny-all ruleset; relying on rejecting every permission request');
+      delete body.permissions;
+      return v2Json('/api/session', { method: 'POST', body }, 'create session', signal);
+    }
+    throw e;
+  }
+}
+
+async function v2RejectPermissions(sid, signal) {
+  while (!signal.aborted) {
+    try {
+      const r = await upstreamFetch(`/api/session/${sid}/permission`, { signal });
+      if (r.ok) {
+        for (const req of (await r.json())?.data ?? []) {
+          log(`rejected an OpenCode permission request (${req.action ?? 'unknown'})`);
+          await upstreamFetch(`/api/session/${sid}/permission/${req.id}/reply`, {
+            method: 'POST', signal, body: { decision: 'reject', message: 'ARTEX bridge: OpenCode tools are disabled; reply with text only.' },
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
+async function generateViaV2(model, prompt, signal) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new HttpError(504, 'upstream timeout')), CFG.timeoutMs);
+  const onAbort = () => ctl.abort(new HttpError(499, 'client closed request'));
+  signal?.addEventListener('abort', onAbort, { once: true });
+  let sid;
+  try {
+    const created = await v2CreateSession(model, ctl.signal);
+    sid = created?.data?.id ?? created?.id;
+    if (!sid) throw new HttpError(502, 'OpenCode 2.x did not return a session id');
+
+    if (v2Mode !== 'prompt') {
+      try {
+        const out = await v2Json(`/api/session/${sid}/generate`, { method: 'POST', body: { prompt } }, 'generate text', ctl.signal);
+        const text = out?.data?.text ?? out?.text;
+        if (typeof text === 'string' && text) {
+          if (v2Mode !== 'generate') log('OpenCode 2.x: answering through session generate');
+          v2Mode = 'generate';
+          return text;
+        }
+        throw new HttpError(502, 'OpenCode session generate returned no text', { skip: true });
+      } catch (e) {
+        // Zen refuses free models to some request paths: try a regular agent turn once.
+        if (!(e.quota && v2Mode === null)) throw e;
+        log(`session generate refused (${e.message}); trying a regular prompt turn`);
+      }
+    }
+
+    const reject = v2RejectPermissions(sid, ctl.signal);
+    await v2Json(`/api/session/${sid}/prompt`, { method: 'POST', body: { text: prompt } }, 'message', ctl.signal);
+    // wait until the turn is over (the endpoint may return 503 while busy)
+    for (;;) {
+      const r = await upstreamFetch(`/api/experimental/session/${sid}/wait`, { method: 'POST', body: {}, signal: ctl.signal }).catch((e) => {
+        if (ctl.signal.aborted && ctl.signal.reason instanceof HttpError) throw ctl.signal.reason;
+        throw new HttpError(502, `OpenCode unreachable: ${e.message}`);
+      });
+      if (r.status !== 503) break;
+      await new Promise((x) => setTimeout(x, 500));
+    }
+    const page = await v2Json(`/api/session/${sid}/message?limit=20`, { method: 'GET' }, 'messages', ctl.signal);
+    const reply = v2ReplyFrom(page?.data ?? page);
+    reject.catch(() => {});
+    if (reply.error) {
+      if (FREE_LIMIT.test(reply.error)) throw new HttpError(429, `quota exceeded: ${reply.error}`, { quota: true, retryAfterMs: CFG.quotaCooldownMs });
+      if (/invalid credential|unauthori[sz]ed|invalid api key|authentication/i.test(reply.error)) throw new HttpError(401, `OpenCode rejected the credentials: ${reply.error}`);
+      throw new HttpError(502, `OpenCode model error: ${reply.error}`, { skip: true });
+    }
+    if (!reply.text) {
+      log(`no reply text found in the OpenCode 2.x messages (assistant found: ${reply.found}; keys: ${reply.keys})`);
+      throw new HttpError(502, 'OpenCode 2.x returned no reply text', { skip: true });
+    }
+    if (v2Mode !== 'prompt') log('OpenCode 2.x: answering through a prompt turn (permissions rejected)');
+    v2Mode = 'prompt';
+    return reply.text;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+    if (!ctl.signal.aborted) ctl.abort(new HttpError(499, 'done'));
+    if (sid) {
+      const quiet = { signal: AbortSignal.timeout(5000) };
+      upstreamFetch(`/api/session/${sid}/interrupt`, { method: 'POST', body: {}, ...quiet })
+        .catch(() => {})
+        .finally(() => upstreamFetch(`/api/session/${sid}`, { method: 'DELETE', ...quiet }).catch(() => {}));
+    }
+  }
+}
+
 let detectedApi = null;
 async function generateText(model, prompt, _session, signal) {
   const mode = CFG.api === 'auto' ? detectedApi : CFG.api;
   if (mode === 'generate') return generateViaText(model, prompt, signal);
+  if (mode === 'v2') return generateViaV2(model, prompt, signal);
   try {
     const out = await generateViaSession(model, prompt, signal);
     if (CFG.api === 'auto') detectedApi = 'session';
     return out;
   } catch (e) {
-    if (e.noSessionApi && CFG.api === 'auto') {
-      detectedApi = 'generate';
-      log('upstream has no session API; using /api/experimental/generate/text');
-      return generateViaText(model, prompt, signal);
-    }
-    throw e;
+    if (!(e.noSessionApi && CFG.api === 'auto')) throw e;
   }
+  // No /session: OpenCode 2.x (/api/session) or, failing that, generate/text.
+  const probe = await upstreamFetch('/api/session', { method: 'GET', signal }).catch(() => null);
+  if (probe && probe.status !== 404 && probe.status !== 405) {
+    detectedApi = 'v2';
+    log('upstream is OpenCode 2.x; using /api/session');
+    return generateViaV2(model, prompt, signal);
+  }
+  detectedApi = 'generate';
+  log('upstream has no session API; using /api/experimental/generate/text');
+  return generateViaText(model, prompt, signal);
 }
 
 // --------------------------------------------------------- orchestration

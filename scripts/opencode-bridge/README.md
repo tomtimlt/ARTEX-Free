@@ -98,6 +98,13 @@ OPENCODE_BRIDGE_AGENT=
 
 3. `docker compose up -d`, then test the ARTEX profile again. The app must be running.
 
+The bridge detects the app's OpenCode 2.x API (`/api/session`) and, for each request,
+creates a session with a deny-all permission ruleset, asks for text with
+`/api/session/{id}/generate` (no agent loop, no tool), and only if Zen refuses that
+path runs a regular prompt turn while rejecting every permission the agent asks for
+(shell, files, web). The session is deleted afterwards. The bridge logs which path
+answered and every rejected permission request.
+
 ## Bridge on the host instead
 
 If you can open a port on your machine:

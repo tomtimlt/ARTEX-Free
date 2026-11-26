@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 // Mock OpenCode server (session API)
-let script = []; const seen = []; const deleted = []; let retryStatus = {}; let desktop = false;
+let script = []; const seen = []; const deleted = []; let retryStatus = {}; let desktop = false; let v2 = null;
 const mock = http.createServer((req, res) => {
   let b = ''; req.on('data', c => b += c); req.on('end', () => {
     const json = (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
@@ -15,6 +15,32 @@ const mock = http.createServer((req, res) => {
       ] });
     }
     if (req.url === '/experimental/tool/ids') return json(200, ['bash', 'edit', 'webfetch']);
+    if (v2) {
+      if (req.url === '/session') { res.statusCode = 405; return res.end(); }
+      if (req.url === '/api/session' && req.method === 'GET') return json(200, { data: [] });
+      if (req.url === '/api/session' && req.method === 'POST') {
+        const body = JSON.parse(b); v2.created.push(body);
+        if (body.permissions && v2.rejectRuleset) return json(400, { error: 'bad ruleset' });
+        return json(200, { data: { id: 'ses_v2_' + v2.created.length } });
+      }
+      let m2 = /^\/api\/session\/([^/]+)\/generate$/.exec(req.url);
+      if (m2) {
+        const body = JSON.parse(b); seen.push({ body, sid: m2[1] });
+        const step = script.shift() || { text: '{"type":"final","content":"default"}' };
+        if (step.status) return json(step.status, step.body || {});
+        return json(200, { data: { text: step.text, tokens: {}, cost: 0 } });
+      }
+      m2 = /^\/api\/session\/([^/]+)\/prompt$/.exec(req.url);
+      if (m2) { v2.prompts.push(JSON.parse(b)); v2.pending = [{ id: 'per_1', action: 'bash' }]; return json(200, { data: { id: 'msg_u' } }); }
+      m2 = /^\/api\/session\/([^/]+)\/permission$/.exec(req.url);
+      if (m2) { const d = v2.pending; v2.pending = []; return json(200, { data: d }); }
+      m2 = /^\/api\/session\/([^/]+)\/permission\/([^/]+)\/reply$/.exec(req.url);
+      if (m2) { v2.replies.push({ id: m2[2], ...JSON.parse(b) }); res.statusCode = 204; return res.end(); }
+      if (/^\/api\/experimental\/session\/[^/]+\/wait$/.test(req.url)) { setTimeout(() => { res.statusCode = 204; res.end(); }, 600); return; }
+      if (/^\/api\/session\/[^/]+\/message/.test(req.url)) return json(200, { data: [{ type: 'user', payload: { text: 'q' } }, { type: 'assistant', content: [{ type: 'reasoning', text: '' }, { type: 'text', text: v2.reply }] }] });
+      if (/^\/api\/session\/[^/]+\/interrupt$/.test(req.url)) return json(200, { interrupted: false });
+      if (/^\/api\/session\/[^/]+$/.test(req.url) && req.method === 'DELETE') { deleted.push(req.url.split('/')[3]); return json(200, true); }
+    }
     if (desktop && req.url === '/session') { res.statusCode = 405; return res.end(); }
     if (desktop && req.url === '/api/experimental/generate/text' && req.method === 'POST') {
       const body = JSON.parse(b); seen.push({ body });
@@ -51,7 +77,7 @@ const server = B.createServer();
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => { server.close(); mock.close(); });
-test.beforeEach(() => { B.resetState(); script = []; seen.length = 0; deleted.length = 0; retryStatus = {}; desktop = false; });
+test.beforeEach(() => { B.resetState(); script = []; seen.length = 0; deleted.length = 0; retryStatus = {}; desktop = false; v2 = null; });
 
 const tools = [{ type: 'function', function: { name: 'search_assets', description: 'search', parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] } } }];
 const post = (body, headers = {}) => fetch(base + '/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -194,6 +220,44 @@ test('invalid Zen key -> 401 with a clear message', async () => {
   assert.equal(r.status, 401); assert.match(j.error.message, /OPENCODE_ZEN_API_KEY/);
 });
 
+
+const newV2 = (extra = {}) => ({ created: [], prompts: [], pending: [], replies: [], reply: '', ...extra });
+
+test('OpenCode 2.x: session generate with a deny-all ruleset, session deleted', async () => {
+  v2 = newV2();
+  script = [{ text: '{"type":"tool_call","name":"search_assets","arguments":{"q":"z"}}' }];
+  const j = await (await post(req())).json();
+  assert.equal(j.choices[0].message.tool_calls[0].function.name, 'search_assets');
+  assert.deepEqual(v2.created[0].model, { id: 'deepseek-v4.1-flash-free', providerID: 'opencode' });
+  assert.deepEqual(v2.created[0].permissions, [{ permission: '*', pattern: '*', action: 'deny' }]);
+  await pause(80);
+  assert.ok(deleted.includes('ses_v2_1'), 'the session is deleted afterwards');
+  assert.equal(v2.prompts.length, 0, 'no agent turn when generate works');
+});
+
+test('OpenCode 2.x: generate refused by Zen -> prompt turn, every permission rejected', async () => {
+  v2 = newV2({ reply: '{"type":"final","content":"via prompt"}' });
+  script = [{ status: 429, body: { _tag: 'ProviderRequestError', reason: 'rate_limit', message: 'Free usage limit reached. Free models work in OpenCode' } }];
+  const j = await (await post(req())).json();
+  assert.equal(j.choices[0].message.content, 'via prompt');
+  assert.equal(v2.prompts.length, 1);
+  assert.match(v2.prompts[0].text, /\[user\]\nhi/);
+  assert.deepEqual(v2.replies.map(r => [r.id, r.decision]), [['per_1', 'reject']]);
+});
+
+test('OpenCode 2.x: unknown ruleset shape -> session created without it', async () => {
+  v2 = newV2({ rejectRuleset: true });
+  script = [{ text: '{"type":"final","content":"ok"}' }];
+  const j = await (await post(req())).json();
+  assert.equal(j.choices[0].message.content, 'ok');
+  assert.equal(v2.created.length, 2); assert.equal(v2.created[1].permissions, undefined);
+});
+
+test('v2ReplyFrom reads assistant text and errors', () => {
+  assert.equal(B.v2ReplyFrom([{ type: 'assistant', parts: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] }]).text, 'ab');
+  assert.match(B.v2ReplyFrom([{ role: 'assistant', error: { name: 'APIError', data: { message: 'Free usage limit reached' } } }]).error, /Free usage/);
+  assert.equal(B.v2ReplyFrom([{ type: 'user', payload: { text: 'x' } }]).found, false);
+});
 
 test('upstream 401 -> 401, 5xx -> 502', async () => {
   script = [{ status: 401 }]; assert.equal((await post(req())).status, 401);
