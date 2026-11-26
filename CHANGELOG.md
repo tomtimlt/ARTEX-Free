@@ -31,6 +31,7 @@ All notable changes to this project are documented in this file. The format is b
 - **Uploads do not follow a symlink**: chat and workspace uploads `Lstat` the destination and refuse to write when it is already a symlink. A dangling link is no longer treated as a free name.
 - **Hardening follow-up for the upload and capture fixes**: existing spill blob directories and files are tightened on startup, hook `range` charges 32 bytes per pair, and uploads open with `O_NOFOLLOW` on Unix. The Windows upload path keeps the `Lstat` check.
 - **Docker Compose database passwords with URL-special characters**: `docker-compose.yml` no longer pastes `POSTGRES_PASSWORD` into `ARTEX_PG_DSN`. The server builds the URL from `ARTEX_PG_HOST`, `ARTEX_PG_PORT`, `ARTEX_PG_USER`, `ARTEX_PG_PASSWORD`, `ARTEX_PG_DBNAME` and `ARTEX_PG_SSLMODE`, percent-encoding the user and password, so `/`, `?`, `%`, `@`, `:` and spaces connect. An explicit `ARTEX_PG_DSN` still wins and is not rewritten. `ARTEX_PG_PASSWORD` is removed from the environment with the other startup secrets (#450).
+- **OpenCode Zen free-tier exhaustion fails over**: OpenCode Zen's `Free usage exceeded` (also `Free usage exceeded, subscribe to Go.`, usually an HTTP 429) now triggers LLM profile failover instead of being retried as a rate limit.
 
 ## [0.7.0] - 2026-11-21
 

@@ -25,6 +25,9 @@ func TestIsQuotaExhaustedMessage(t *testing.T) {
 		`billing_not_active`,
 		`credit balance is too low`,
 		`insufficient funds, please top up`,
+		`Free usage exceeded`,
+		`status 429: {"type":"error","error":{"type":"FreeUsageLimitError","message":"Free usage exceeded, subscribe to Go."}}`,
+		`status 429: Free usage exceeded, rate limit applies`,
 	}
 	for _, message := range positive {
 		if !IsQuotaExhaustedMessage(message) {
@@ -34,6 +37,8 @@ func TestIsQuotaExhaustedMessage(t *testing.T) {
 
 	negative := []string{
 		`status 429: rate limit exceeded`,
+		`status 429: rate limit exceeded, retry after 20s`,
+		`status 403: Free usage exceeded`,
 		`RESOURCE_EXHAUSTED: rate limit exceeded`,
 		`too many requests per minute`,
 		`quota exceeded for quota metric GenerateRequestsPerMinutePerProjectPerBaseModel`,
