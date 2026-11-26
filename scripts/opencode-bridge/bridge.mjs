@@ -23,8 +23,10 @@ export const CFG = {
   toolDescMax: Number(env.BRIDGE_TOOL_DESC_MAX || 240),
   discoveryTtlMs: 5 * 60 * 1000,
   statusPollMs: Number(env.BRIDGE_STATUS_POLL_MS || 1000),
+  quotaCooldownMs: Number(env.BRIDGE_QUOTA_COOLDOWN_MS || 60 * 1000),
+  maxCooldownMs: Number(env.BRIDGE_MAX_COOLDOWN_MS || 5 * 60 * 1000),
   maxUpstreamRetries: Number(env.BRIDGE_MAX_UPSTREAM_RETRIES || 2),
-  unavailableCooldownMs: Number(env.BRIDGE_UNAVAILABLE_COOLDOWN_MS || 5 * 60 * 1000),
+  unavailableCooldownMs: Number(env.BRIDGE_UNAVAILABLE_COOLDOWN_MS || 2 * 60 * 1000),
   agent: env.BRIDGE_AGENT || '',
   // session = OpenCode session API (npm builds); generate = /api/experimental/generate/text
   // (desktop app 2.x); auto = try session, fall back to generate on 404/405.
@@ -124,7 +126,13 @@ export function orderedModels(requested, discovered) {
 // ---------------------------------------------------- cooldowns / quotas
 const cooldown = new Map(); // model -> epoch ms
 const coolUntil = m => cooldown.get(m) || 0;
-export function setCooldown(m, ms) { cooldown.set(m, Date.now() + Math.max(1000, ms)); }
+// Zen's 429 RateLimit.Free is a short burst limit, not a daily quota: a refused
+// model is usually usable again within a minute. Park it briefly (capped), so
+// one refusal never takes a model out for hours.
+export function setCooldown(m, ms) {
+  const v = Number.isFinite(ms) && ms > 0 ? ms : CFG.quotaCooldownMs;
+  cooldown.set(m, Date.now() + Math.min(CFG.maxCooldownMs, Math.max(1000, v)));
+}
 export function resetState() { cooldown.clear(); authCache = undefined; modelCache = { at: 0, ids: null }; toolCache = { at: 0, ids: null }; detectedApi = null; }
 
 function parseRetryAfterMs(res, bodyText) {
@@ -135,11 +143,6 @@ function parseRetryAfterMs(res, bodyText) {
     const v = j.retryAfterMs ?? j.data?.retryAfterMs ?? j.error?.retryAfterMs;
     if (Number(v) > 0) return Number(v);
   } catch {}
-  const m = /retry[^0-9]{0,20}(\d+)\s*(ms|s|sec|seconds|m|min|minutes|h|hours)?/i.exec(bodyText);
-  if (m) {
-    const n = Number(m[1]); const u = (m[2] || 's').toLowerCase();
-    return n * (u === 'ms' ? 1 : u.startsWith('h') ? 3600e3 : u.startsWith('m') && u !== 'ms' ? 60e3 : 1000);
-  }
   return null;
 }
 const isQuota = (res, text) => res.status === 429 || res.status === 402 || /quota|rate.?limit|too many requests/i.test(text);
@@ -278,7 +281,7 @@ async function watchRetry(sid, signal) {
       const reason = `${st.action?.reason ?? ''} ${st.message ?? ''}`;
       if (FREE_LIMIT.test(reason)) {
         const next = Number(st.next);
-        const ms = Number.isFinite(next) && next > Date.now() ? next - Date.now() : 15 * 60 * 1000;
+        const ms = Number.isFinite(next) && next > Date.now() ? next - Date.now() : CFG.quotaCooldownMs;
         throw new HttpError(429, `quota exceeded: ${st.message || st.action?.reason}`, { quota: true, retryAfterMs: ms });
       }
       if (Number(st.attempt) >= CFG.maxUpstreamRetries) throw new HttpError(502, `OpenCode keeps retrying: ${st.message ?? 'unknown error'}`, { skip: true });
@@ -293,7 +296,7 @@ async function readUpstream(res, what) {
   const text = await res.text();
   if (!res.ok) {
     if (FREE_LIMIT.test(text) || res.status === 429 || res.status === 402) {
-      throw new HttpError(429, `quota exceeded (${what})`, { quota: true, retryAfterMs: parseRetryAfterMs(res, text) ?? 15 * 60 * 1000 });
+      throw new HttpError(429, `quota exceeded (${what})`, { quota: true, retryAfterMs: parseRetryAfterMs(res, text) ?? CFG.quotaCooldownMs });
     }
     if (res.status === 401 || res.status === 403) throw new HttpError(401, 'OpenCode rejected the bridge credentials (check OPENCODE_PASSWORD)');
     if (res.status === 404) throw new HttpError(404, `OpenCode endpoint not found (${what})`);
@@ -346,7 +349,7 @@ async function generateViaSession(model, prompt, signal) {
     const err = out?.info?.error;
     if (err) {
       const msg = `${err.name ?? ''} ${err.data?.message ?? err.message ?? ''}`.trim();
-      if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: 15 * 60 * 1000 });
+      if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: CFG.quotaCooldownMs });
       if (/invalid credential|unauthori[sz]ed|invalid api key|authentication/i.test(msg)) {
         throw new HttpError(401, `OpenCode Zen rejected the API key (OPENCODE_ZEN_API_KEY): ${msg}`);
       }
@@ -390,7 +393,7 @@ async function generateViaText(model, prompt, signal) {
     const err = out?.error ?? out?.data?.error;
     if (err) {
       const msg = typeof err === 'string' ? err : `${err.name ?? ''} ${err.data?.message ?? err.message ?? ''}`.trim();
-      if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: 15 * 60 * 1000 });
+      if (FREE_LIMIT.test(msg)) throw new HttpError(429, `quota exceeded: ${msg}`, { quota: true, retryAfterMs: CFG.quotaCooldownMs });
       throw new HttpError(502, `OpenCode model error: ${msg || 'unknown'}`);
     }
     const t = out?.data?.text ?? out?.text;
@@ -439,7 +442,7 @@ export async function chatCompletion(body, { session, signal } = {}) {
       try {
         reply = await generateText(model, prompt, session, signal);
       } catch (e) {
-        if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; log(`model ${model} in cooldown for ${Math.round(e.retryAfterMs / 1000)}s`); continue; }
+        if (e.quota) { setCooldown(model, e.retryAfterMs); lastQuota = e; log(`model ${model} rate limited, parked ${Math.round((coolUntil(model) - Date.now()) / 1000)}s`); continue; }
         // A model OpenCode cannot reach right now: park it briefly, try the next one.
         if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; log(`model ${model} unavailable, skipped: ${e.message}`); continue; }
         throw e;
@@ -461,7 +464,7 @@ export async function chatCompletion(body, { session, signal } = {}) {
       return toOpenAI(r, model, prompt, completionText);
     }
     // everything exhausted / cooling down
-    const wait = Math.min(...order.map(coolUntil).filter(t => t > Date.now()).concat(lastQuota ? [Date.now() + lastQuota.retryAfterMs] : [Infinity])) - Date.now();
+    const wait = Math.min(...order.map(coolUntil).filter((t) => t > Date.now()), Infinity) - Date.now();
     if (!isFinite(wait)) throw new HttpError(502, lastSkip ? `no model available: ${lastSkip.message}` : 'no model available');
     if (wait < 60000) throw new HttpError(429, 'all OpenCode free models are rate limited', { retryAfter: Math.ceil(wait / 1000) });
     throw new HttpError(402, `quota exceeded on all OpenCode free models${lastSkip ? ' (some are unavailable)' : ''}; next one usable around ${new Date(Date.now() + wait).toISOString()}`, { retryAfter: Math.ceil(wait / 1000) });
