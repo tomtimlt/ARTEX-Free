@@ -1,0 +1,26 @@
+# Windows (Docker Desktop) override.
+#
+# Folders bind-mounted from a Windows drive show up inside the container as
+# world-writable (0777): Docker Desktop cannot carry NTFS permissions into the
+# Linux VM. ARTEX's agent-isolation self-test then refuses to start, because an
+# agent process could rewrite the JWT/secret keys and the approved skills.
+#
+# This override keeps data/, keys/ and skills/ in Docker named volumes instead,
+# which have real Linux permissions. Use it on Windows:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.windows.yml up -d --build
+#
+# or copy it to docker-compose.override.yml, which Compose loads automatically.
+# The skills volume is filled from the image's built-in /app/skills on first use;
+# rebuild the image (or remove the volume) to pick up skill changes.
+services:
+  artex:
+    volumes:
+      - artex-data:/app/data
+      - artex-keys:/app/keys
+      - artex-skills:/app/skills
+
+volumes:
+  artex-data:
+  artex-keys:
+  artex-skills:

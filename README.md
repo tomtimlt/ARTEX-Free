@@ -52,6 +52,14 @@ cp .env.example .env            # set POSTGRES_PASSWORD (and optionally an LLM k
 docker compose up -d --build    # builds from this checkout, starts PostgreSQL
 ```
 
+On Windows (Docker Desktop), add the Windows override: folders bind-mounted from a Windows
+drive are world-writable inside the container, and the agent-isolation self-test refuses to start
+on them. The override keeps `data/`, `keys/` and `skills/` in Docker volumes instead:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.windows.yml up -d --build
+```
+
 Open **http://localhost:8787**. On the first visit `/setup` asks for the one-time setup token
 printed at startup:
 
