@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { AlertTriangle, ShieldCheck } from "lucide-react";
 
+import { LagoonBackdrop } from "@/components/lagoon-backdrop";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -95,15 +96,8 @@ export default function LoginPage() {
     <div className="flex h-dvh">
       {/* Left panel */}
       <div className="relative hidden overflow-hidden bg-[#1b4a42] p-12 text-[#fdf6e3] lg:flex lg:w-[42%] lg:flex-col lg:justify-between">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 [background-image:radial-gradient(rgba(253,246,227,0.1)_1px,transparent_1px)] [background-size:14px_14px]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-40 [background-image:linear-gradient(to_right,rgba(242,193,78,0.35)_1px,transparent_1px),linear-gradient(to_bottom,rgba(242,193,78,0.35)_1px,transparent_1px)] [background-size:28px_28px] [mask-image:linear-gradient(to_top,black,transparent)] [transform:perspective(320px)_rotateX(55deg)] origin-bottom"
-        />
-        <div className="relative flex items-center gap-3">
+        <LagoonBackdrop variant="panel" />
+        <div className="relative flex items-center gap-3 [text-shadow:2px_2px_0_#17332d]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <picture className="contents">
             <source srcSet="/logo.webp" type="image/webp" />
@@ -118,7 +112,7 @@ export default function LoginPage() {
           </span>
         </div>
         <div className="relative space-y-6">
-          <h1 className="max-w-md font-(family-name:--font-pixel) text-4xl leading-tight">
+          <h1 className="max-w-md font-(family-name:--font-pixel) text-4xl leading-tight [text-shadow:3px_3px_0_#17332d]">
             {t("Autonomous offensive security, under your control")}
           </h1>
           <div aria-hidden className="flex gap-1.5">
@@ -131,7 +125,7 @@ export default function LoginPage() {
             ))}
           </div>
         </div>
-        <p className="relative font-(family-name:--font-pixel) text-[#f2c14e] text-xs tracking-wide">
+        <p className="relative self-start bg-[#17332d]/85 px-2 py-1 font-(family-name:--font-pixel) text-[#f2c14e] text-xs tracking-wide">
           {t("Use only on systems you are authorized to test.")}
         </p>
       </div>

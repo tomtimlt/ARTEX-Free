@@ -575,3 +575,10 @@ html[data-theme-preset="default"] [data-slot="button"]:is([data-variant="default
 html[data-theme-preset="default"] .px-tiles > [data-slot="card"] :is(.text-2xl, .text-3xl) {
   font-family: var(--font-pixel), var(--font-sans), system-ui, sans-serif;
 }
+
+/* The lagoon backdrop (components/lagoon-backdrop.tsx) is painted behind the
+   content area, so that area lets the page background through; cards, tables
+   and the sidebar keep their own opaque backgrounds. */
+html[data-theme-preset="default"] [data-slot="sidebar-inset"] {
+  background-color: transparent;
+}

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import * as React from "react";
 
 import { AppSidebar } from "@/app/(main)/_components/sidebar/app-sidebar";
+import { LagoonBackdrop } from "@/components/lagoon-backdrop";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { auth } from "@/lib/auth";
 import { getClientCookie } from "@/lib/cookie.client";
@@ -68,6 +69,7 @@ export default function Layout({ children }: Readonly<{ children: ReactNode }>) 
         } as React.CSSProperties
       }
     >
+      <LagoonBackdrop />
       <AppSidebar variant={variant} collapsible={collapsible} />
       <SidebarInset
         className={cn(
