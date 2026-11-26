@@ -13,7 +13,18 @@ Check that this use fits OpenCode Zen's terms for your account.
 node --test          # tests against a simulated OpenCode
 ```
 
-Endpoints: `GET /health`, `GET /v1/models`, `POST /v1/chat/completions` (`stream:false` only).
+Endpoints: `GET /health`, `GET /v1/models`, `POST /v1/chat/completions`.
+
+What ARTEX gets, like from any OpenAI-compatible provider:
+
+- streaming or not (`stream:true` is replayed as regular SSE chunks, with the usage
+  frame when `stream_options.include_usage` is set), so the profile keeps its defaults;
+- one or several tool calls per reply (`tool_calls` with indexes, optional text next
+  to them), `finish_reason` `tool_calls` / `stop`, `tool_choice` honoured
+  (`none`, `required`, a named function);
+- arguments checked and coerced to the tool schema (`"443"` → `443`);
+- plain-text replies for turns without tools (summaries, goal decomposition);
+- real token counts when OpenCode reports them (cached tokens included), else an estimate.
 
 ## Recommended: OpenCode inside Docker (no admin rights needed)
 
@@ -61,7 +72,7 @@ docker compose restart opencode opencode-bridge
 | Base URL | `http://opencode-bridge:8789/v1` |
 | API Key | the `OPENCODE_BRIDGE_TOKEN` value |
 | Model | load the list, pick e.g. `opencode/deepseek-v4.1-flash-free` |
-| Streaming output | **off** |
+| Streaming output | on or off (both work) |
 | Context window (K) | 160 |
 
    Test connection, Create, then "Set as active". Add a second profile and enable the
@@ -136,5 +147,6 @@ ARTEX not in Docker: keep `BRIDGE_HOST` at its default `127.0.0.1`, no token, an
 | `BRIDGE_TIMEOUT_MS` | `180000` |
 | `BRIDGE_CONCURRENCY` / `BRIDGE_MAX_QUEUE` | `2` / `8` |
 
-Limits: tool calling is emulated (one tool per turn), no streaming, token usage is
-estimated (chars/4). No prompt is logged.
+Limits: tool calling is emulated through a JSON protocol (up to 4 parallel calls,
+`BRIDGE_MAX_PARALLEL_CALLS`); the stream is replayed once the reply is complete, so
+there is no token-by-token progress. No prompt is logged.

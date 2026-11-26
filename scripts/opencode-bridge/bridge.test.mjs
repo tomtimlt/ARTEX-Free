@@ -79,6 +79,7 @@ const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => { server.close(); mock.close(); });
 test.beforeEach(() => { B.resetState(); script = []; seen.length = 0; deleted.length = 0; retryStatus = {}; desktop = false; v2 = null; });
 
+const pause = (ms = 80) => new Promise(r => setTimeout(r, ms));
 const tools = [{ type: 'function', function: { name: 'search_assets', description: 'search', parameters: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] } } }];
 const post = (body, headers = {}) => fetch(base + '/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const req = (extra = {}) => ({ model: 'opencode/deepseek-v4.1-flash-free', messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }], tools, ...extra });
@@ -138,11 +139,73 @@ test('missing required arg is rejected', async () => {
   assert.equal((await post(req())).status, 502);
 });
 
-test('stream:true -> 400', async () => {
-  assert.equal((await post(req({ stream: true }))).status, 400);
+test('stream:true replays the completion as OpenAI SSE frames', async () => {
+  script = [{ text: '{"type":"tool_calls","content":"checking","calls":[{"name":"search_assets","arguments":{"q":"a"}},{"name":"search_assets","arguments":{"q":"b"}}]}' }];
+  const r = await post(req({ stream: true, stream_options: { include_usage: true } }));
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/event-stream/);
+  const raw = await r.text();
+  assert.ok(raw.trim().endsWith('data: [DONE]'));
+  const frames = raw.split('\n\n').filter(f => f.startsWith('data: {')).map(f => JSON.parse(f.slice(6)));
+  assert.equal(frames[0].choices[0].delta.role, 'assistant');
+  const content = frames.map(f => f.choices[0]?.delta?.content ?? '').join('');
+  assert.equal(content, 'checking');
+  const tcs = frames.flatMap(f => f.choices[0]?.delta?.tool_calls ?? []);
+  const byIndex = {};
+  for (const t of tcs) { byIndex[t.index] ??= { id: '', name: '', args: '' }; if (t.id) byIndex[t.index].id = t.id; if (t.function?.name) byIndex[t.index].name = t.function.name; byIndex[t.index].args += t.function?.arguments ?? ''; }
+  assert.deepEqual(Object.values(byIndex).map(x => [x.name, JSON.parse(x.args)]), [['search_assets', { q: 'a' }], ['search_assets', { q: 'b' }]]);
+  assert.ok(Object.values(byIndex).every(x => x.id.startsWith('call_')));
+  assert.equal(frames.find(f => f.choices[0]?.finish_reason)?.choices[0].finish_reason, 'tool_calls');
+  const usage = frames.find(f => f.usage)?.usage;
+  assert.ok(usage && usage.total_tokens > 0);
 });
 
-const pause = (ms = 80) => new Promise(r => setTimeout(r, ms));
+test('parallel tool calls in one reply, with a note as content', async () => {
+  script = [{ text: '{"type":"tool_calls","content":"two at once","calls":[{"name":"search_assets","arguments":{"q":"a"}},{"name":"search_assets","arguments":{"q":"b"}}]}' }];
+  const j = await (await post(req())).json();
+  const m = j.choices[0].message;
+  assert.equal(m.content, 'two at once');
+  assert.equal(m.tool_calls.length, 2);
+  assert.notEqual(m.tool_calls[0].id, m.tool_calls[1].id);
+  assert.equal(j.choices[0].finish_reason, 'tool_calls');
+});
+
+test('tool_choice required refuses a final answer, forced tool name is enforced', async () => {
+  script = [{ text: '{"type":"final","content":"done"}' }, { text: '{"type":"tool_call","name":"search_assets","arguments":{"q":"x"}}' }];
+  const j = await (await post(req({ tool_choice: 'required' }))).json();
+  assert.equal(j.choices[0].message.tool_calls[0].function.name, 'search_assets');
+  assert.match(seen[0].body.parts[0].text, /MUST call at least one tool/);
+  script = [{ text: '{"type":"final","content":"no tools"}' }];
+  const k = await (await post(req({ tool_choice: 'none' }))).json();
+  assert.equal(k.choices[0].message.content, 'no tools');
+  assert.doesNotMatch(seen.at(-1).body.parts[0].text, /Available tools/);
+});
+
+test('no tools: plain text reply is passed through as is', async () => {
+  script = [{ text: 'Here is the summary.\nLine 2' }];
+  const j = await (await post({ model: 'x', messages: [{ role: 'user', content: 'summarize' }] })).json();
+  assert.equal(j.choices[0].message.content, 'Here is the summary.\nLine 2');
+  assert.match(seen[0].body.parts[0].text, /plain text/);
+});
+
+test('arguments are coerced to the schema types', async () => {
+  const typed = [{ type: 'function', function: { name: 'scan', description: 's', parameters: { type: 'object', properties: { port: { type: 'integer' }, deep: { type: 'boolean' }, hosts: { type: 'array' } }, required: ['port'] } } }];
+  script = [{ text: '{"type":"tool_call","name":"scan","arguments":{"port":"443","deep":"true","hosts":"a.com"}}' }];
+  const j = await (await post(req({ tools: typed }))).json();
+  assert.deepEqual(JSON.parse(j.choices[0].message.tool_calls[0].function.arguments), { port: 443, deep: true, hosts: ['a.com'] });
+});
+
+test('prose twice with tools available -> taken as the final answer', async () => {
+  script = [{ text: 'I think the answer is 42.' }, { text: 'Really, it is 42.' }];
+  const j = await (await post(req())).json();
+  assert.equal(j.choices[0].message.content, 'Really, it is 42.');
+  assert.equal(j.choices[0].finish_reason, 'stop');
+});
+
+test('real token counts from OpenCode are reported', () => {
+  assert.deepEqual(B.tokensToUsage({ input: 100, output: 20, reasoning: 5, cache: { read: 900, write: 0 } }), { prompt_tokens: 1000, completion_tokens: 25, cached: 900 });
+  assert.equal(B.tokensToUsage({ input: 0, output: 0 }), null);
+});
 
 test('account rate limit: pause, 429 + Retry-After, no hammering of other models', async () => {
   script = [{ retry: 'Free usage exceeded, subscribe to Go', reason: 'free_tier_limit', nextIn: 3600000 }];

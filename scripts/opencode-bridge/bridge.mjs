@@ -21,6 +21,7 @@ export const CFG = {
   maxQueue: Number(env.BRIDGE_MAX_QUEUE || 8),
   providerID: env.BRIDGE_PROVIDER || 'opencode',
   toolDescMax: Number(env.BRIDGE_TOOL_DESC_MAX || 240),
+  maxParallelCalls: Number(env.BRIDGE_MAX_PARALLEL_CALLS || 4),
   discoveryTtlMs: 5 * 60 * 1000,
   statusPollMs: Number(env.BRIDGE_STATUS_POLL_MS || 1000),
   quotaCooldownMs: Number(env.BRIDGE_QUOTA_COOLDOWN_MS || 30 * 1000),
@@ -165,23 +166,42 @@ async function acquire(signal) {
 function release() { const w = waiters.shift(); if (w) w.resolve(); else active--; }
 
 // ------------------------------------------------- request -> prompt (B)
-export function buildPrompt(messages, tools) {
+// tool_choice as OpenAI sends it: 'auto' | 'none' | 'required' | {type:'function', function:{name}}
+export function normalizeToolChoice(tc) {
+  if (tc == null || tc === 'auto') return { mode: 'auto' };
+  if (tc === 'none') return { mode: 'none' };
+  if (tc === 'required' || tc === 'any') return { mode: 'required' };
+  const name = tc?.function?.name ?? tc?.name;
+  return name ? { mode: 'required', name } : { mode: 'auto' };
+}
+
+export function buildPrompt(messages, tools, toolChoice = { mode: 'auto' }) {
   const parts = [];
-  const hasTools = Array.isArray(tools) && tools.length > 0;
-  parts.push([
-    'You are the language model behind an automated agent. You have no direct access to tools: the host executes them for you.',
-    'Reply with EXACTLY ONE JSON object and nothing else (no markdown, no code fences, no commentary).',
-    hasTools
-      ? 'Protocol:\n- To call a tool: {"type":"tool_call","name":"<tool name>","arguments":{...}}\n- To give the final answer: {"type":"final","content":"<text>"}\nRules: call at most ONE tool per turn; "name" must be one of the available tools; "arguments" must be a JSON object that satisfies the tool\'s parameter schema. After a tool result is shown, either call another tool or give the final answer.'
-      : 'Protocol:\n- {"type":"final","content":"<text>"}\nNo tools are available: always give a final answer.',
-  ].join('\n'));
+  const hasTools = Array.isArray(tools) && tools.length > 0 && toolChoice.mode !== 'none';
   if (hasTools) {
-    const cat = tools.map(t => {
+    const must = toolChoice.name
+      ? `You MUST call the tool "${toolChoice.name}" now.`
+      : toolChoice.mode === 'required'
+        ? 'You MUST call at least one tool now (no final answer this turn).'
+        : 'Call tools when you need them; give the final answer when you are done.';
+    parts.push([
+      'You are the language model behind an automated agent. You have no direct access to tools: the host executes them for you and shows you their results.',
+      'Reply with EXACTLY ONE JSON object and nothing else (no markdown, no code fences, no text around it).',
+      'Protocol:',
+      '- Call one tool: {"type":"tool_call","name":"<tool>","arguments":{...}}',
+      `- Call several independent tools at once (at most ${CFG.maxParallelCalls}): {"type":"tool_calls","calls":[{"name":"<tool>","arguments":{...}}, ...]}`,
+      '- Final answer: {"type":"final","content":"<text>"}',
+      'A tool call may also carry a short "content" note for the user.',
+      `Rules: "name" must be one of the available tools; "arguments" must be a JSON object matching that tool's parameter schema (right types, required fields present). Only batch calls that do not depend on each other's results. ${must}`,
+    ].join('\n'));
+    const cat = tools.map((t) => {
       const f = t.function || t;
       const d = String(f.description || '');
-      return { name: f.name, description: d.length > CFG.toolDescMax ? d.slice(0, CFG.toolDescMax) + '…' : d, parameters: f.parameters || { type: 'object', properties: {} } };
+      return { name: f.name, description: d.length > CFG.toolDescMax ? `${d.slice(0, CFG.toolDescMax)}…` : d, parameters: f.parameters || { type: 'object', properties: {} } };
     });
-    parts.push('Available tools (JSON):\n' + JSON.stringify(cat));
+    parts.push(`Available tools (JSON):\n${JSON.stringify(cat)}`);
+  } else {
+    parts.push('You are the language model behind an automated agent. Reply with your answer as plain text. No tool is available in this turn.');
   }
   parts.push('--- Conversation ---');
   const idToName = new Map();
@@ -197,11 +217,23 @@ export function buildPrompt(messages, tools) {
         parts.push(`[assistant tool_call id=${tc.id} name=${tc.function?.name}]\n${tc.function?.arguments || '{}'}`);
       }
     } else if (role === 'tool') {
-      parts.push(`[tool result id=${m.tool_call_id}${idToName.get(m.tool_call_id) ? ' name=' + idToName.get(m.tool_call_id) : ''}]\n${contentToText(m.content)}`);
+      parts.push(`[tool result id=${m.tool_call_id}${idToName.get(m.tool_call_id) ? ` name=${idToName.get(m.tool_call_id)}` : ''}]\n${contentToText(m.content)}`);
     }
   }
-  parts.push('--- End of conversation ---\nNow reply with the single JSON object.');
+  parts.push(hasTools ? '--- End of conversation ---\nNow reply with the single JSON object.' : '--- End of conversation ---\nNow write your reply.');
   return parts.join('\n\n');
+}
+
+// OpenCode token counts -> OpenAI usage. OpenCode reports uncached input apart
+// from cache reads/writes; OpenAI's prompt_tokens includes them all.
+export function tokensToUsage(t) {
+  if (!t || typeof t !== 'object') return null;
+  if (Number.isFinite(t.prompt_tokens)) return { prompt_tokens: t.prompt_tokens, completion_tokens: t.completion_tokens ?? 0, cached: t.prompt_tokens_details?.cached_tokens ?? 0 };
+  const read = Number(t.cache?.read ?? 0) || 0;
+  const write = Number(t.cache?.write ?? 0) || 0;
+  const input = (Number(t.input ?? 0) || 0) + read + write;
+  const output = (Number(t.output ?? 0) || 0) + (Number(t.reasoning ?? 0) || 0);
+  return input || output ? { prompt_tokens: input, completion_tokens: output, cached: read } : null;
 }
 
 // ------------------------------------------------- response -> OpenAI (B)
@@ -223,28 +255,73 @@ export function extractJsonObject(text) {
   return null;
 }
 
-// Returns {ok:true, kind:'tool_call'|'final', ...} or {ok:false, reason}
-export function interpret(text, tools) {
+// Coerce argument values to the declared JSON-schema types ("5" -> 5, "true" -> true).
+function coerceArgs(args, schema) {
+  const props = schema?.properties;
+  if (!props || typeof args !== 'object') return args;
+  const out = { ...args };
+  for (const [k, v] of Object.entries(out)) {
+    const t = props[k]?.type;
+    const types = Array.isArray(t) ? t : [t];
+    if (typeof v === 'string') {
+      if ((types.includes('integer') || types.includes('number')) && /^-?\d+(\.\d+)?$/.test(v.trim())) out[k] = Number(v);
+      else if (types.includes('boolean') && /^(true|false)$/i.test(v.trim())) out[k] = v.trim().toLowerCase() === 'true';
+      else if ((types.includes('array') || types.includes('object')) && /^[[{]/.test(v.trim())) {
+        try { out[k] = JSON.parse(v); } catch {}
+      } else if (types.includes('array') && !types.includes('string')) out[k] = [v];
+    } else if (types.includes('array') && !types.includes('object') && v != null && !Array.isArray(v) && typeof v !== 'object') {
+      out[k] = [v];
+    }
+  }
+  return out;
+}
+
+function checkCall(call, tools) {
+  const tool = tools.map((t) => t.function || t).find((f) => f.name === call?.name);
+  if (!tool) return { error: `unknown tool "${call?.name}"; valid names: ${tools.map((t) => (t.function || t).name).join(', ')}` };
+  let args = call.arguments ?? call.args ?? call.parameters ?? {};
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args || '{}'); } catch { return { error: `"arguments" of ${tool.name} is not valid JSON` }; }
+  }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return { error: `"arguments" of ${tool.name} must be a JSON object` };
+  args = coerceArgs(args, tool.parameters);
+  const missing = (tool.parameters?.required || []).filter((k) => !(k in args));
+  if (missing.length) return { error: `missing required argument(s) for ${tool.name}: ${missing.join(', ')}` };
+  return { call: { name: tool.name, arguments: args } };
+}
+
+// Returns {ok:true, kind:'final', content} | {ok:true, kind:'tool_calls', calls, content} | {ok:false, reason}
+export function interpret(text, tools, toolChoice = { mode: 'auto' }) {
+  const hasTools = Array.isArray(tools) && tools.length > 0 && toolChoice.mode !== 'none';
   const obj = extractJsonObject(text);
-  if (!obj || typeof obj !== 'object') return { ok: false, reason: 'no JSON object found in the reply' };
-  const hasTools = Array.isArray(tools) && tools.length > 0;
-  if (obj.type === 'final' || (obj.type == null && typeof obj.content === 'string' && !obj.name)) {
+  if (!hasTools) {
+    // plain-text turn; unwrap a {"type":"final"} object if the model sent one anyway
+    if (obj && typeof obj.content === 'string' && (obj.type === 'final' || obj.type == null) && !obj.name) return { ok: true, kind: 'final', content: obj.content };
+    const t = (text || '').trim();
+    return t ? { ok: true, kind: 'final', content: t } : { ok: false, reason: 'empty reply' };
+  }
+  if (!obj || typeof obj !== 'object') return { ok: false, reason: 'no JSON object found in the reply', noJson: true };
+  let raw = null;
+  if (obj.type === 'tool_calls' || Array.isArray(obj.calls) || Array.isArray(obj.tool_calls)) raw = obj.calls ?? obj.tool_calls;
+  else if (obj.type === 'tool_call' || obj.name) raw = [obj];
+  if (raw) {
+    if (!raw.length) return { ok: false, reason: '"calls" is empty' };
+    const calls = [];
+    for (const c of raw.slice(0, CFG.maxParallelCalls)) {
+      const r = checkCall(c?.function ? { name: c.function.name, arguments: c.function.arguments } : c, tools);
+      if (r.error) return { ok: false, reason: r.error };
+      calls.push(r.call);
+    }
+    if (toolChoice.name && !calls.some((c) => c.name === toolChoice.name)) return { ok: false, reason: `you must call the tool "${toolChoice.name}"` };
+    const note = typeof obj.content === 'string' && obj.content.trim() ? obj.content.trim() : null;
+    return { ok: true, kind: 'tool_calls', calls, content: note };
+  }
+  if (obj.type === 'final' || typeof obj.content === 'string') {
     if (typeof obj.content !== 'string') return { ok: false, reason: '"final" requires a string "content"' };
+    if (toolChoice.mode === 'required') return { ok: false, reason: 'a tool call is required in this turn' };
     return { ok: true, kind: 'final', content: obj.content };
   }
-  if (obj.type === 'tool_call' || obj.name) {
-    if (!hasTools) return { ok: false, reason: 'no tools are available; reply with {"type":"final","content":"..."}' };
-    const tool = tools.map(t => t.function || t).find(f => f.name === obj.name);
-    if (!tool) return { ok: false, reason: `unknown tool "${obj.name}"; valid names: ${tools.map(t => (t.function || t).name).join(', ')}` };
-    let args = obj.arguments ?? {};
-    if (typeof args === 'string') { try { args = JSON.parse(args); } catch { return { ok: false, reason: '"arguments" is not valid JSON' }; } }
-    if (!args || typeof args !== 'object' || Array.isArray(args)) return { ok: false, reason: '"arguments" must be a JSON object' };
-    const req = tool.parameters?.required || [];
-    const missing = req.filter(k => !(k in args));
-    if (missing.length) return { ok: false, reason: `missing required argument(s) for ${tool.name}: ${missing.join(', ')}` };
-    return { ok: true, kind: 'tool_call', name: tool.name, arguments: args };
-  }
-  return { ok: false, reason: 'unknown "type"; expected "tool_call" or "final"' };
+  return { ok: false, reason: 'unknown "type"; expected "tool_call", "tool_calls" or "final"' };
 }
 
 // ----------------------------------------------------- calling OpenCode
@@ -359,7 +436,7 @@ async function generateViaSession(model, prompt, signal) {
     }
     const text = (out?.parts ?? []).filter((p) => p?.type === 'text' && typeof p.text === 'string').map((p) => p.text).join('');
     if (!text) throw new HttpError(502, 'OpenCode returned no text');
-    return text;
+    return { text, usage: tokensToUsage(out?.info?.tokens) };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
@@ -400,7 +477,7 @@ async function generateViaText(model, prompt, signal) {
     }
     const t = out?.data?.text ?? out?.text;
     if (typeof t !== 'string' || !t) throw new HttpError(502, 'OpenCode response has no text');
-    return t;
+    return { text: t, usage: tokensToUsage(out?.data?.tokens ?? out?.data?.usage ?? out?.usage) };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
@@ -512,7 +589,7 @@ async function generateViaV2(model, prompt, signal) {
         if (typeof text === 'string' && text) {
           if (v2Mode !== 'generate') log('OpenCode 2.x: answering through session generate');
           v2Mode = 'generate';
-          return text;
+          return { text, usage: tokensToUsage(out?.data?.tokens) };
         }
         throw new HttpError(502, 'OpenCode session generate returned no text', { skip: true });
       } catch (e) {
@@ -547,7 +624,7 @@ async function generateViaV2(model, prompt, signal) {
     }
     if (v2Mode !== 'prompt') log('OpenCode 2.x: answering through a prompt turn (permissions rejected)');
     v2Mode = 'prompt';
-    return reply.text;
+    return { text: reply.text, usage: null };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', onAbort);
@@ -587,10 +664,10 @@ async function generateText(model, prompt, _session, signal) {
 
 // --------------------------------------------------------- orchestration
 export async function chatCompletion(body, { session, signal } = {}) {
-  if (body.stream === true) throw new HttpError(400, 'stream:true is not supported by this bridge; set streaming=false in the ARTEX profile');
   if (!Array.isArray(body.messages) || !body.messages.length) throw new HttpError(400, 'messages is required');
   const tools = Array.isArray(body.tools) ? body.tools : [];
-  const prompt = buildPrompt(body.messages, tools);
+  const toolChoice = normalizeToolChoice(body.tool_choice);
+  const prompt = buildPrompt(body.messages, tools, toolChoice);
   session = session || 'bridge-' + crypto.randomUUID();
 
   // Zen's RateLimit.Free is per account, not per model: after one refusal every
@@ -627,21 +704,29 @@ export async function chatCompletion(body, { session, signal } = {}) {
         if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; log(`model ${model} unavailable, skipped: ${e.message}`); continue; }
         throw e;
       }
-      let r = interpret(reply, tools);
-      let completionText = reply;
+      let r = interpret(reply.text, tools, toolChoice);
+      let completion = reply;
       if (!r.ok) { // one repair attempt on the same model
-        const repair = prompt + `\n\n[your previous reply was invalid: ${r.reason}]\nReply again with EXACTLY ONE valid JSON object, nothing else.`;
-        try { completionText = await attempt(model, repair); }
+        const repair = `${prompt}\n\n[your previous reply was invalid: ${r.reason}]\nReply again with EXACTLY ONE valid JSON object, nothing else.`;
+        try { completion = await attempt(model, repair); }
         catch (e) {
           if (e.skip) { setCooldown(model, CFG.unavailableCooldownMs); lastSkip = e; continue; }
           throw e;
         }
-        r = interpret(completionText, tools);
+        const r2 = interpret(completion.text, tools, toolChoice);
+        // A model that keeps answering in prose: take the prose as the final answer
+        // unless a tool call is mandatory this turn.
+        if (!r2.ok && r2.noJson && toolChoice.mode !== 'required' && completion.text.trim()) {
+          log(`model ${model} answered in prose twice; using it as the final answer`);
+          r = { ok: true, kind: 'final', content: completion.text.trim() };
+        } else {
+          r = r2;
+        }
         if (!r.ok) throw new HttpError(502, `model ${model} did not produce a valid reply: ${r.reason}`);
       }
       rateLimitStreak = 0;
-      log(`served by ${model} (${r.kind}${r.name ? ':' + r.name : ''})`);
-      return toOpenAI(r, model, prompt, completionText);
+      log(`served by ${model} (${r.kind === 'tool_calls' ? `tools:${r.calls.map((c) => c.name).join(',')}` : 'final'})`);
+      return toOpenAI(r, model, prompt, completion, reply === completion ? null : reply);
     }
     const wait = Math.min(...order.map(coolUntil).filter((t) => t > Date.now()), Infinity) - Date.now();
     if (!isFinite(wait)) throw new HttpError(502, lastSkip ? `no model available: ${lastSkip.message}` : 'no model available');
@@ -663,17 +748,46 @@ function accountPaused() {
   return new HttpError(429, `OpenCode Zen is rate limiting this account; retry in ${secs}s`, { retryAfter: secs });
 }
 
-function toOpenAI(r, model, prompt, completionText) {
-  const pt = estimateTokens(prompt), ct = estimateTokens(completionText);
-  const message = r.kind === 'tool_call'
-    ? { role: 'assistant', content: null, tool_calls: [{ id: 'call_' + crypto.randomBytes(8).toString('hex'), type: 'function', function: { name: r.name, arguments: JSON.stringify(r.arguments) } }] }
+function toOpenAI(r, model, prompt, completion, firstTry) {
+  // Real counts from OpenCode when it gives them, else an estimate (chars/4).
+  // A repaired turn costs two calls: count both.
+  const add = (u, text, promptText) => u ?? { prompt_tokens: estimateTokens(promptText), completion_tokens: estimateTokens(text), cached: 0 };
+  const u1 = add(completion.usage, completion.text, prompt);
+  const u0 = firstTry ? add(firstTry.usage, firstTry.text, prompt) : { prompt_tokens: 0, completion_tokens: 0, cached: 0 };
+  const pt = u1.prompt_tokens + u0.prompt_tokens;
+  const ct = u1.completion_tokens + u0.completion_tokens;
+  const message = r.kind === 'tool_calls'
+    ? {
+        role: 'assistant',
+        content: r.content ?? null,
+        tool_calls: r.calls.map((c) => ({ id: `call_${crypto.randomBytes(8).toString('hex')}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments) } })),
+      }
     : { role: 'assistant', content: r.content };
   return {
-    id: 'chatcmpl-' + crypto.randomBytes(8).toString('hex'), object: 'chat.completion',
+    id: `chatcmpl-${crypto.randomBytes(8).toString('hex')}`, object: 'chat.completion',
     created: Math.floor(Date.now() / 1000), model: `${CFG.providerID}/${model}`,
-    choices: [{ index: 0, message, finish_reason: r.kind === 'tool_call' ? 'tool_calls' : 'stop' }],
-    usage: { prompt_tokens: pt, completion_tokens: ct, total_tokens: pt + ct },
+    choices: [{ index: 0, message, finish_reason: r.kind === 'tool_calls' ? 'tool_calls' : 'stop' }],
+    usage: { prompt_tokens: pt, completion_tokens: ct, total_tokens: pt + ct, prompt_tokens_details: { cached_tokens: u1.cached + u0.cached } },
   };
+}
+
+// The same completion as OpenAI chat.completion.chunk SSE frames: role, text in
+// slices, each tool call (id + name, then arguments) at its index, the finish
+// reason, the usage frame when asked for, then [DONE].
+export function toSSE(out, includeUsage) {
+  const base = { id: out.id, object: 'chat.completion.chunk', created: out.created, model: out.model };
+  const frame = (choices, extra = {}) => `data: ${JSON.stringify({ ...base, choices, ...extra })}\n\n`;
+  const msg = out.choices[0].message;
+  let sse = frame([{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }]);
+  const text = msg.content || '';
+  for (let i = 0; i < text.length; i += 400) sse += frame([{ index: 0, delta: { content: text.slice(i, i + 400) }, finish_reason: null }]);
+  (msg.tool_calls || []).forEach((tc, index) => {
+    sse += frame([{ index: 0, delta: { tool_calls: [{ index, id: tc.id, type: 'function', function: { name: tc.function.name, arguments: '' } }] }, finish_reason: null }]);
+    sse += frame([{ index: 0, delta: { tool_calls: [{ index, function: { arguments: tc.function.arguments } }] }, finish_reason: null }]);
+  });
+  sse += frame([{ index: 0, delta: {}, finish_reason: out.choices[0].finish_reason }]);
+  if (includeUsage) sse += frame([], { usage: out.usage });
+  return `${sse}data: [DONE]\n\n`;
 }
 
 // ------------------------------------------------------------ HTTP server
@@ -716,6 +830,13 @@ export function createServer() {
       if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
         const body = await readBody(req);
         const out = await chatCompletion(body, { session: req.headers['x-opencode-session'], signal: ctl.signal });
+        if (body.stream === true) {
+          // OpenCode answers in one piece; replay it as a regular OpenAI stream so
+          // ARTEX profiles can keep their default streaming mode.
+          if (res.headersSent) return;
+          res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
+          return res.end(toSSE(out, body.stream_options?.include_usage === true));
+        }
         return send(res, 200, out);
       }
       throw new HttpError(404, `no route for ${req.method} ${url.pathname}`);
